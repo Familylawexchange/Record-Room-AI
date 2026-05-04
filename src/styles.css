@@ -425,3 +425,89 @@ th {
   border-color: #efb4b4;
   color: #a12a2a;
 }
+
+code {
+  background: #eef4ff;
+  border-radius: 0.35rem;
+  color: #143d67;
+  font-weight: 800;
+  padding: 0.08rem 0.28rem;
+}
+
+button:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.aiPanel {
+  border-color: rgba(38, 105, 168, 0.22);
+}
+
+.presetGrid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  margin: 1rem 0;
+}
+
+.presetButton {
+  border-radius: 16px;
+  padding: 0.85rem 1rem;
+  text-align: left;
+}
+
+.aiQuestionLabel {
+  color: #24364c;
+  display: grid;
+  font-weight: 800;
+  gap: 0.45rem;
+  margin: 1rem 0;
+}
+
+.aiQuestionLabel textarea {
+  min-height: 120px;
+}
+
+.aiActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.aiActions .status {
+  margin: 0;
+}
+
+.aiReportOutput {
+  margin-top: 1.25rem;
+}
+
+.aiReport {
+  background: #fbfdff;
+  border: 1px solid #dbe6f1;
+  border-radius: 22px;
+  line-height: 1.65;
+  padding: 1.1rem;
+}
+
+.aiReport h3,
+.aiReport h4 {
+  margin: 1rem 0 0.5rem;
+}
+
+.aiReport ul {
+  display: grid;
+  gap: 0.55rem;
+  padding-left: 1.25rem;
+}
+
+.aiReportMeta {
+  align-items: center;
+  color: #56657a;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+}

@@ -86,8 +86,9 @@
             <li>The app treats uploaded files as the complete evidentiary universe.</li>
             <li>Every generated finding includes a quote and document/page reference when text is extractable.</li>
             <li>Actor-based results are labeled as fact patterns for attorney review.</li>
-            <li>Local-only storage uses this browser's IndexedDB to simulate private storage; no server upload happens in this static phase.</li>
-            <li>TXT, DOCX, and embedded PDF text extraction run locally; scanned PDFs/images keep a clear local OCR placeholder until a private OCR worker/backend is connected. OpenAI AI pattern analysis remains a future hook.</li>
+            <li>Local-only storage uses this browser's IndexedDB to simulate private storage; the Node server only receives extracted text when OpenAI analysis is requested.</li>
+            <li>TXT, DOCX, and embedded PDF text extraction run locally; scanned PDFs/images keep a clear local OCR placeholder until a private OCR worker/backend is connected.</li>
+            <li>OpenAI analysis uses <code>OPENAI_API_KEY</code> on the local server and requires citations with document name, page when available, and quoted source text.</li>
           </ul>
         </div>
       </section>
@@ -111,6 +112,28 @@
         <div class="documents" id="documents"></div>
       </section>
 
+      <section class="panel aiPanel">
+        <div class="sectionHeader">
+          <div>
+            <p class="eyebrow">OpenAI pattern-analysis layer</p>
+            <h2>🤖 Ask questions about uploaded case documents</h2>
+          </div>
+        </div>
+        <p class="formIntro">Choose a preset or ask a custom question. The request uses extracted document text as source material and instructs OpenAI to distinguish facts from possible legal issues, cite quoted source text, and avoid unsupported conclusions.</p>
+        <div class="presetGrid" id="ai-preset-buttons"></div>
+        <label class="aiQuestionLabel">
+          Custom question for this case
+          <textarea id="ai-question" placeholder="Example: What facts in the uploaded documents may show a notice problem, and what follow-up questions should a human reviewer ask?"></textarea>
+        </label>
+        <div class="aiActions">
+          <button id="ai-run-custom" type="button">Run custom OpenAI analysis</button>
+          <p class="status" id="ai-status">Set OPENAI_API_KEY on the local Node server, upload documents, then choose a preset or ask a question.</p>
+        </div>
+        <div class="aiReportOutput" id="ai-report-output">
+          <p class="empty">AI report output will appear here with headings, findings, citations, and suggested human review questions.</p>
+        </div>
+      </section>
+
       <section class="panel report">
         <div class="sectionHeader">
           <h2>🧾 Citation-backed case report</h2>
@@ -124,7 +147,7 @@
         </div>
         <div class="placeholderGrid">
           <div class="placeholderBox"><strong>Local extraction status</strong><span>TXT, DOCX, and embedded PDF text are parsed in the browser. Scanned PDFs/JPG/PNG files show an OCR placeholder until a local Tesseract worker or private OCR backend is connected.</span></div>
-          <div class="placeholderBox"><strong>OpenAI pattern analysis placeholder</strong><span>Connect future AI review here after extraction; send only uploaded-document text snippets and require citation-backed findings.</span></div>
+          <div class="placeholderBox"><strong>OpenAI pattern analysis</strong><span>When OPENAI_API_KEY is set, the AI panel sends extracted page text, document names, and page/source locators to the local proxy and requires citation-backed findings.</span></div>
         </div>
         <div id="report-output"></div>
       </section>
