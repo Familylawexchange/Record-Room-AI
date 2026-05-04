@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Record Room AI</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main>
+      <section class="hero panel">
+        <div>
+          <p class="eyebrow">🔒 Local-first legal document review</p>
+          <h1>Record Room AI</h1>
+          <p class="lede">
+            Upload transcripts, orders, motions, exhibits, and official records. The review engine extracts available text,
+            organizes evidence by case, and produces citation-backed reports that never rely on outside facts.
+          </p>
+          <div class="guardrails">
+            <span>📚 Uploaded documents only</span>
+            <span>📄 Page-level citations</span>
+            <span>⚖️ Facts separated from legal conclusions</span>
+          </div>
+        </div>
+        <div class="heroIcon" aria-hidden="true">⚖️</div>
+      </section>
+
+      <section class="grid two">
+        <form class="panel uploader" id="upload-form">
+          <h2>☁️ Upload case documents</h2>
+          <label>
+            Case ID
+            <input id="case-id" value="CASE-001" placeholder="e.g. 24-FC-001" />
+          </label>
+          <label>
+            Document type
+            <select id="document-type">
+              <option>Transcript</option>
+              <option>Order</option>
+              <option>Motion</option>
+              <option>Exhibit</option>
+              <option>Official Record</option>
+              <option>Other</option>
+            </select>
+          </label>
+          <label class="dropzone">
+            <span class="dropIcon">⬆️</span>
+            <strong>Choose files</strong>
+            <span>TXT, MD, CSV, JSON, HTML, XML, log files, and text-exported court records</span>
+            <input id="file-input" multiple type="file" accept=".txt,.md,.csv,.json,.html,.htm,.xml,.log,text/*" />
+          </label>
+          <p class="status" id="status">Upload court records to begin an evidence-bound review.</p>
+        </form>
+
+        <div class="panel">
+          <h2>🛡️ Source boundary</h2>
+          <ul class="checks">
+            <li>The app treats uploaded files as the complete evidentiary universe.</li>
+            <li>Every generated finding includes a quote and document/page reference.</li>
+            <li>Actor-based results are labeled as fact patterns for attorney review.</li>
+            <li>Processing runs in the browser; no remote AI provider, search index, or outside legal corpus is contacted.</li>
+            <li>Scanned PDFs and binary office files should be OCR/text-exported before upload for reliable extraction.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="sectionHeader">
+          <h2>📁 Cases and documents</h2>
+          <select id="case-select"><option>CASE-001</option></select>
+        </div>
+        <div class="documents" id="documents"></div>
+      </section>
+
+      <section class="panel report">
+        <div class="sectionHeader">
+          <h2>🧾 Citation-backed case report</h2>
+          <button id="export-report" type="button">Export JSON report</button>
+        </div>
+        <p class="boundary" id="boundary"></p>
+        <div class="grid three stats">
+          <div><strong id="document-count">0</strong><span>Documents</span></div>
+          <div><strong id="timeline-count">0</strong><span>Timeline events</span></div>
+          <div><strong id="pattern-count">0</strong><span>Repeated patterns</span></div>
+        </div>
+        <div id="report-output"></div>
+      </section>
+    </main>
+    <script type="module" src="/src/app.js"></script>
+  </body>
+</html>

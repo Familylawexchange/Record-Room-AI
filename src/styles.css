@@ -1,0 +1,257 @@
+:root {
+  color: #162033;
+  background: #eef3f8;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(38, 105, 168, 0.22), transparent 30rem),
+    linear-gradient(135deg, #f8fbff 0%, #e8eef6 100%);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  background: #143d67;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 0.8rem 1.15rem;
+}
+
+main {
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 2rem;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  color: #0d2742;
+  font-size: clamp(2.5rem, 7vw, 5.8rem);
+  line-height: 0.95;
+  letter-spacing: -0.08em;
+  margin-bottom: 1rem;
+}
+
+h2,
+h3,
+h4 {
+  color: #102d4c;
+}
+
+h2,
+.sectionHeader {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+}
+
+.panel {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(20, 61, 103, 0.12);
+  border-radius: 28px;
+  box-shadow: 0 24px 70px rgba(22, 32, 51, 0.09);
+  margin-bottom: 1.25rem;
+  padding: 1.5rem;
+}
+
+.hero {
+  align-items: center;
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  overflow: hidden;
+  padding: clamp(1.5rem, 4vw, 3rem);
+}
+
+.heroIcon {
+  color: rgba(20, 61, 103, 0.12);
+  height: clamp(8rem, 20vw, 16rem);
+  width: clamp(8rem, 20vw, 16rem);
+}
+
+.eyebrow,
+.guardrails,
+.status,
+.boundary,
+.docCard span,
+.empty {
+  color: #56657a;
+}
+
+.eyebrow,
+.guardrails span {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.eyebrow {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lede {
+  color: #344154;
+  font-size: 1.15rem;
+  line-height: 1.7;
+  max-width: 760px;
+}
+
+.guardrails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.guardrails span,
+.stats div,
+.docCard {
+  background: #f4f8fc;
+  border: 1px solid #dbe6f1;
+  border-radius: 18px;
+  padding: 0.75rem 0.9rem;
+}
+
+.grid {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.two { grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr); }
+.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.uploader label {
+  color: #24364c;
+  display: grid;
+  font-weight: 700;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+
+input,
+select {
+  background: #fff;
+  border: 1px solid #cbd8e6;
+  border-radius: 14px;
+  color: #162033;
+  padding: 0.8rem 0.9rem;
+}
+
+.dropzone {
+  align-items: center;
+  border: 2px dashed #88a9c7;
+  border-radius: 22px;
+  cursor: pointer;
+  justify-items: center;
+  min-height: 170px;
+  padding: 1.2rem;
+  text-align: center;
+}
+
+.dropzone input {
+  inline-size: 1px;
+  opacity: 0;
+  position: absolute;
+}
+
+.checks {
+  display: grid;
+  gap: 0.85rem;
+  line-height: 1.55;
+  padding-left: 1.2rem;
+}
+
+.sectionHeader {
+  justify-content: space-between;
+}
+
+.documents {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.docCard {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.stats div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.stats strong {
+  color: #143d67;
+  font-size: 2rem;
+}
+
+.reportSection {
+  border-top: 1px solid #dce6f0;
+  margin-top: 1.4rem;
+  padding-top: 1.4rem;
+}
+
+.evidence {
+  background: #fbfdff;
+  border: 1px solid #e0e9f2;
+  border-radius: 20px;
+  margin: 0 0 1rem;
+  padding: 1rem;
+}
+
+.evidence p {
+  color: #344154;
+  line-height: 1.6;
+}
+
+blockquote {
+  background: #f7fafc;
+  border-left: 4px solid #2669a8;
+  border-radius: 12px;
+  color: #1d2c40;
+  line-height: 1.55;
+  margin: 0.75rem 0 0;
+  padding: 0.85rem 1rem;
+}
+
+cite {
+  color: #5a6d82;
+  display: block;
+  font-style: normal;
+  font-weight: 800;
+  margin-top: 0.55rem;
+}
+
+@media (max-width: 820px) {
+  main { padding: 1rem; }
+  .hero,
+  .two,
+  .three { grid-template-columns: 1fr; }
+  .heroIcon { display: none; }
+  .sectionHeader { align-items: stretch; flex-direction: column; }
+}
