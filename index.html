@@ -87,7 +87,7 @@
             <li>Every generated finding includes a quote and document/page reference when text is extractable.</li>
             <li>Actor-based results are labeled as fact patterns for attorney review.</li>
             <li>Local-only storage uses this browser's IndexedDB to simulate private storage; no server upload happens in this static phase.</li>
-            <li>OCR/text extraction and OpenAI AI pattern analysis are explicit placeholders for the next backend phase.</li>
+            <li>TXT, DOCX, and embedded PDF text extraction run locally; scanned PDFs/images keep a clear local OCR placeholder until a private OCR worker/backend is connected. OpenAI AI pattern analysis remains a future hook.</li>
           </ul>
         </div>
       </section>
@@ -123,8 +123,8 @@
           <div><strong id="pattern-count">0</strong><span>Repeated patterns</span></div>
         </div>
         <div class="placeholderGrid">
-          <div class="placeholderBox"><strong>OCR/text extraction placeholder</strong><span>PDF, DOCX, JPG, and PNG files are stored locally now. Server-side OCR/parsing hooks belong here next.</span></div>
-          <div class="placeholderBox"><strong>OpenAI pattern analysis placeholder</strong><span>Future AI review should consume only extracted upload text and return citation-backed findings.</span></div>
+          <div class="placeholderBox"><strong>Local extraction status</strong><span>TXT, DOCX, and embedded PDF text are parsed in the browser. Scanned PDFs/JPG/PNG files show an OCR placeholder until a local Tesseract worker or private OCR backend is connected.</span></div>
+          <div class="placeholderBox"><strong>OpenAI pattern analysis placeholder</strong><span>Connect future AI review here after extraction; send only uploaded-document text snippets and require citation-backed findings.</span></div>
         </div>
         <div id="report-output"></div>
       </section>

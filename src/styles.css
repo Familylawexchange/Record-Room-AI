@@ -394,3 +394,34 @@ th {
   .placeholderGrid { grid-template-columns: 1fr; }
   .caseGroupHeader { align-items: stretch; flex-direction: column; }
 }
+
+.previewCell {
+  color: #344154;
+  line-height: 1.5;
+  max-width: 360px;
+  min-width: 260px;
+}
+
+.pill.status-uploaded {
+  background: #eef4ff;
+  border-color: #c6d8ff;
+  color: #2450a6;
+}
+
+.pill.status-processing {
+  background: #fff7e7;
+  border-color: #f0d397;
+  color: #8a5a00;
+}
+
+.pill.status-processed {
+  background: #edf7f1;
+  border-color: #bbdec8;
+  color: #17613a;
+}
+
+.pill.status-failed {
+  background: #fff0f0;
+  border-color: #efb4b4;
+  color: #a12a2a;
+}

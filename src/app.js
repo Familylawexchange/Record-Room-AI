@@ -6,6 +6,15 @@ let databasePromise;
 const storageNotice = 'Private storage is simulated locally with this browser\'s IndexedDB. Files do not leave this device in the current static demo.';
 const acceptedExtensions = ['pdf', 'docx', 'txt', 'jpg', 'jpeg', 'png'];
 const textExtensions = ['txt'];
+const imageExtensions = ['jpg', 'jpeg', 'png'];
+const pdfExtension = 'pdf';
+const docxExtension = 'docx';
+const statusLabels = {
+  uploaded: 'Uploaded',
+  processing: 'Processing',
+  processed: 'Processed',
+  failed: 'Failed',
+};
 
 const patternRules = [
   { name: 'Continuance or delay references', terms: ['continued', 'continuance', 'adjourned', 'reset', 'delay'] },
@@ -88,6 +97,7 @@ async function handleUpload(event) {
         const weighted = baseProgress + Math.round((fileProgress / files.length) * 0.7);
         setProgress(Math.min(weighted, 88), `Storing ${file.name} locally...`);
       });
+      setProgress(Math.min(baseProgress + 8, 90), `Extracting text from ${file.name}...`);
       const doc = await buildDocument(file, storedFile.blob, submission);
       uploadedDocuments.push(doc);
     }
@@ -126,7 +136,7 @@ function buildSubmission(files) {
 }
 
 async function buildDocument(file, blob, submission) {
-  const text = await extractText(file, blob);
+  const extension = getExtension(file.name);
   const doc = {
     id: crypto.randomUUID(),
     submissionId: submission.id,
@@ -137,33 +147,168 @@ async function buildDocument(file, blob, submission) {
     name: file.name,
     type: submission.documentType,
     mimeType: file.type || 'application/octet-stream',
-    extension: getExtension(file.name),
+    extension,
     size: file.size,
     notes: submission.notes,
     uploadedAt: submission.uploadedAt,
     storageMode: submission.storageMode,
     privateBlob: blob,
-    extractionStatus: textExtensions.includes(getExtension(file.name)) ? 'Text extracted locally from TXT file.' : 'Placeholder only: OCR/text extraction is not implemented for this file type yet.',
-    aiAnalysisStatus: 'Placeholder only: OpenAI AI pattern analysis is not connected yet.',
-    pages: splitTextIntoPages(text),
+    extractionStatus: 'uploaded',
+    extractionStatusHistory: [{ status: 'uploaded', at: new Date().toISOString(), message: 'File uploaded to local private IndexedDB storage.' }],
+    extractionMessage: 'File uploaded to local private IndexedDB storage.',
+    extractionError: '',
+    extractionEngine: 'local-browser-best-effort',
+    sourceReference: buildSourceReference(file, submission),
+    extractedText: '',
+    extractionPreview: '',
+    aiAnalysisStatus: 'Placeholder only: OpenAI AI pattern analysis is not connected yet. Connect it after extraction and send only cited upload text.',
+    pages: [],
     actors: [],
   };
+
+  setDocumentExtractionStatus(doc, 'processing', `Extracting text from ${extension.toUpperCase()} locally in the browser...`);
+
+  try {
+    const result = await extractText(file, blob);
+    setDocumentExtractionStatus(doc, result.status, result.message);
+    doc.extractionError = result.error || '';
+    doc.extractionEngine = result.engine;
+    doc.sourceReference = { ...doc.sourceReference, ...result.sourceReference };
+    doc.extractedText = result.text;
+    doc.pages = result.pages.length ? result.pages : splitTextIntoPages(result.text, doc.sourceReference);
+    doc.extractionPreview = previewText(doc.extractedText);
+  } catch (error) {
+    setDocumentExtractionStatus(doc, 'failed', `Extraction failed for ${file.name}.`);
+    doc.extractionError = error.message || 'Unknown local extraction error.';
+    doc.extractedText = `[Extraction failed for ${file.name}: ${doc.extractionError}]`;
+    doc.pages = splitTextIntoPages(doc.extractedText, doc.sourceReference);
+    doc.extractionPreview = previewText(doc.extractedText);
+  }
+
   doc.actors = extractActors(doc);
   return doc;
 }
 
+
+function setDocumentExtractionStatus(doc, status, message) {
+  doc.extractionStatus = status;
+  doc.extractionMessage = message;
+  doc.extractionStatusHistory = [
+    ...(doc.extractionStatusHistory || []),
+    { status, at: new Date().toISOString(), message },
+  ];
+}
+
 async function extractText(file, blob) {
-  if (textExtensions.includes(getExtension(file.name))) {
-    const text = await blob.text();
-    const normalized = normalizeWhitespace(text);
-    return normalized || '[TXT file contained no extractable text.]';
+  const extension = getExtension(file.name);
+
+  if (textExtensions.includes(extension)) return extractTxt(file, blob);
+  if (extension === docxExtension) return extractDocx(file, blob);
+  if (extension === pdfExtension) return extractPdf(file, blob);
+  if (imageExtensions.includes(extension)) return extractImageOcrPlaceholder(file);
+
+  throw new Error(`${file.name} is not supported for extraction.`);
+}
+
+async function extractTxt(file, blob) {
+  const rawText = await blob.text();
+  const text = normalizeWhitespace(rawText) || '[TXT file contained no extractable text.]';
+  return extractionResult({
+    file,
+    text,
+    pages: splitTextIntoPages(rawText, { documentName: file.name, sourceType: 'txt' }),
+    message: text.startsWith('[TXT file contained') ? 'TXT was processed, but no text was found.' : 'Text extracted locally from TXT file.',
+    engine: 'browser-file-text',
+  });
+}
+
+async function extractDocx(file, blob) {
+  const entries = await unzipEntries(await blob.arrayBuffer());
+  const documentXml = entries.get('word/document.xml');
+  if (!documentXml) throw new Error('DOCX extraction failed: word/document.xml was not found in the uploaded DOCX package.');
+
+  const xml = new TextDecoder('utf-8').decode(documentXml);
+  const text = docxXmlToText(xml);
+  if (!normalizeWhitespace(text)) {
+    return extractionResult({
+      file,
+      text: '[DOCX processed locally, but no extractable text was found.]',
+      message: 'DOCX was processed locally, but no text was found.',
+      engine: 'local-docx-zip-xml-parser',
+    });
   }
 
-  return [
-    `[${file.name} is stored locally for private intake.]`,
-    '[OCR/text extraction placeholder: add PDF, DOCX, JPG, and PNG parsing in the backend phase.]',
-    '[OpenAI AI pattern analysis placeholder: after extraction, send only cited upload text for evidence-bound review.]',
+  return extractionResult({
+    file,
+    text,
+    pages: splitTextIntoPages(text, { documentName: file.name, sourceType: 'docx' }),
+    message: 'DOCX text extracted locally from word/document.xml.',
+    engine: 'local-docx-zip-xml-parser',
+  });
+}
+
+async function extractPdf(file, blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const binary = bytesToBinaryString(bytes);
+  const pageCount = countPdfPages(binary);
+  const streamTexts = await extractPdfStreamText(binary);
+  const wholeFileText = decodePdfTextOperators(binary);
+  const text = normalizeWhitespace([...streamTexts, wholeFileText].join(' '));
+
+  if (text) {
+    return extractionResult({
+      file,
+      text,
+      pages: splitTextIntoPdfPages(text, pageCount, file.name),
+      message: `Embedded PDF text extracted locally${pageCount ? ` with ${pageCount} page reference(s)` : ''}. Scanned pages without embedded text still need OCR.`,
+      engine: 'local-pdf-best-effort-parser',
+      sourceReference: { pageCount: pageCount || undefined },
+    });
+  }
+
+  const placeholder = [
+    `[${file.name} appears to be a scanned PDF or image-only PDF with no embedded text found by the local browser parser.]`,
+    '[OCR placeholder: add a local Tesseract worker or private backend OCR job here before OpenAI analysis.]',
   ].join(' ');
+  return extractionResult({
+    file,
+    text: placeholder,
+    pages: splitTextIntoPdfPages(placeholder, pageCount || 1, file.name),
+    message: 'PDF stored privately, but no embedded text was found. OCR is a clear local placeholder for scanned PDF pages.',
+    engine: 'local-pdf-best-effort-parser-ocr-placeholder',
+    sourceReference: { pageCount: pageCount || undefined },
+  });
+}
+
+function extractImageOcrPlaceholder(file) {
+  const text = [
+    `[${file.name} is an image upload stored in local private IndexedDB.]`,
+    '[OCR placeholder: browser OCR is not bundled in this static build. Add a local Tesseract.js worker or private backend OCR service here to extract JPG/PNG text before OpenAI analysis.]',
+  ].join(' ');
+  return extractionResult({
+    file,
+    text,
+    pages: [{ page: 1, text, sourceReference: { documentName: file.name, page: 1, sourceType: 'image', locator: `${file.name}#image-1` } }],
+    message: 'Image stored privately. OCR is not bundled yet; this local placeholder marks where JPG/PNG OCR will run.',
+    engine: 'local-image-ocr-placeholder',
+  });
+}
+
+function extractionResult({ file, text, pages = [], message, engine, status = 'processed', error = '', sourceReference = {} }) {
+  const normalizedText = normalizeWhitespace(text);
+  return {
+    status,
+    message,
+    error,
+    engine,
+    text: normalizedText || '[No extractable text found.]',
+    pages,
+    sourceReference: {
+      documentName: file.name,
+      sourceType: getExtension(file.name),
+      ...sourceReference,
+    },
+  };
 }
 
 function validateUpload(files) {
@@ -199,10 +344,191 @@ function getExtension(filename) {
   return filename.split('.').pop().toLowerCase();
 }
 
-function splitTextIntoPages(text) {
-  const explicitPages = text.split(/\f|\n\s*Page\s+\d+\s*\n/i).map(normalizeWhitespace).filter(Boolean);
+function buildSourceReference(file, submission) {
+  return {
+    documentName: file.name,
+    caseId: submission.caseId,
+    caseName: submission.caseName,
+    sourceType: getExtension(file.name),
+    uploadedAt: submission.uploadedAt,
+    locator: `${submission.caseId}/${file.name}`,
+  };
+}
+
+function splitTextIntoPages(text, baseReference = {}) {
+  const explicitPages = String(text).split(/\f|\n\s*Page\s+\d+\s*\n/i).map(normalizeWhitespace).filter(Boolean);
   const chunks = explicitPages.length > 1 ? explicitPages : chunkWords(normalizeWhitespace(text), 350);
-  return chunks.map((chunk, index) => ({ page: index + 1, text: chunk }));
+  return chunks.map((chunk, index) => ({
+    page: index + 1,
+    text: chunk,
+    sourceReference: pageSourceReference(baseReference, index + 1),
+  }));
+}
+
+function splitTextIntoPdfPages(text, pageCount, documentName) {
+  const pages = splitTextIntoPages(text, { documentName, sourceType: 'pdf' });
+  if (!pageCount || pageCount <= 1) return pages;
+
+  if (pages.length >= pageCount) return pages.slice(0, pageCount);
+
+  const words = normalizeWhitespace(text).split(/\s+/).filter(Boolean);
+  const wordsPerPage = Math.max(1, Math.ceil(words.length / pageCount));
+  return Array.from({ length: pageCount }, (_, index) => {
+    const pageText = words.slice(index * wordsPerPage, (index + 1) * wordsPerPage).join(' ') || '[No embedded text found on this page.]';
+    return {
+      page: index + 1,
+      text: pageText,
+      sourceReference: pageSourceReference({ documentName, sourceType: 'pdf' }, index + 1),
+    };
+  });
+}
+
+function pageSourceReference(baseReference, page) {
+  const documentName = baseReference.documentName || 'Uploaded document';
+  return {
+    ...baseReference,
+    page,
+    locator: `${baseReference.locator || documentName}#page-${page}`,
+  };
+}
+
+function previewText(text, maxLength = 260) {
+  const preview = normalizeWhitespace(text);
+  if (!preview) return '[No text preview available.]';
+  return preview.length > maxLength ? `${preview.slice(0, maxLength).trim()}…` : preview;
+}
+
+function bytesToBinaryString(bytes) {
+  const chunkSize = 0x8000;
+  const chunks = [];
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    chunks.push(String.fromCharCode(...bytes.slice(index, index + chunkSize)));
+  }
+  return chunks.join('');
+}
+
+function countPdfPages(binary) {
+  const matches = binary.match(/\/Type\s*\/Page(?!s)\b/g);
+  return matches ? matches.length : 0;
+}
+
+async function extractPdfStreamText(binary) {
+  const streamRegex = /(<<[\s\S]*?>>)\s*stream\r?\n?([\s\S]*?)\r?\n?endstream/g;
+  const texts = [];
+  for (const match of binary.matchAll(streamRegex)) {
+    const dictionary = match[1];
+    let stream = match[2];
+    if (/\/FlateDecode\b/.test(dictionary)) {
+      stream = await inflatePdfStream(stream);
+    }
+    const decoded = decodePdfTextOperators(stream);
+    if (decoded) texts.push(decoded);
+  }
+  return texts;
+}
+
+async function inflatePdfStream(stream) {
+  if (!('DecompressionStream' in window)) return '';
+
+  const bytes = Uint8Array.from(stream, (character) => character.charCodeAt(0) & 0xff);
+  for (const format of ['deflate', 'deflate-raw']) {
+    try {
+      const decompressed = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format))).arrayBuffer();
+      return bytesToBinaryString(new Uint8Array(decompressed));
+    } catch {
+      // Try the next browser-supported deflate flavor.
+    }
+  }
+  return '';
+}
+
+function decodePdfTextOperators(pdfText) {
+  const texts = [];
+  for (const match of pdfText.matchAll(/\(((?:\\.|[^\\)])*)\)\s*T[jJ]/g)) {
+    texts.push(decodePdfLiteralString(match[1]));
+  }
+  for (const match of pdfText.matchAll(/<([0-9A-Fa-f\s]+)>\s*T[jJ]/g)) {
+    texts.push(decodePdfHexString(match[1]));
+  }
+  for (const arrayMatch of pdfText.matchAll(/\[((?:.|\n|\r)*?)\]\s*TJ/g)) {
+    for (const literal of arrayMatch[1].matchAll(/\(((?:\\.|[^\\)])*)\)/g)) {
+      texts.push(decodePdfLiteralString(literal[1]));
+    }
+    for (const hex of arrayMatch[1].matchAll(/<([0-9A-Fa-f\s]+)>/g)) {
+      texts.push(decodePdfHexString(hex[1]));
+    }
+  }
+  return normalizeWhitespace(texts.join(' '));
+}
+
+function decodePdfLiteralString(value) {
+  return value
+    .replace(/\\([nrtbf()\\])/g, (_, escaped) => ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', '(': '(', ')': ')', '\\': '\\' }[escaped] || escaped))
+    .replace(/\\([0-7]{1,3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
+}
+
+function decodePdfHexString(value) {
+  const clean = value.replace(/\s+/g, '');
+  const bytes = [];
+  for (let index = 0; index < clean.length; index += 2) {
+    bytes.push(parseInt(clean.slice(index, index + 2).padEnd(2, '0'), 16));
+  }
+  return new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes)).replace(/\0/g, '');
+}
+
+async function unzipEntries(buffer) {
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  const entries = new Map();
+  let offset = 0;
+
+  while (offset + 30 <= bytes.length && view.getUint32(offset, true) === 0x04034b50) {
+    const compression = view.getUint16(offset + 8, true);
+    const compressedSize = view.getUint32(offset + 18, true);
+    const filenameLength = view.getUint16(offset + 26, true);
+    const extraLength = view.getUint16(offset + 28, true);
+    const filenameStart = offset + 30;
+    const filename = new TextDecoder().decode(bytes.slice(filenameStart, filenameStart + filenameLength));
+    const dataStart = filenameStart + filenameLength + extraLength;
+    const dataEnd = dataStart + compressedSize;
+    const compressed = bytes.slice(dataStart, dataEnd);
+
+    if (!filename.endsWith('/')) {
+      if (compression === 0) entries.set(filename, compressed);
+      else if (compression === 8) entries.set(filename, await inflateZipEntry(compressed, filename));
+      else throw new Error(`DOCX extraction failed: unsupported ZIP compression method ${compression} for ${filename}.`);
+    }
+
+    offset = dataEnd;
+  }
+
+  return entries;
+}
+
+async function inflateZipEntry(compressed, filename) {
+  if (!('DecompressionStream' in window)) {
+    throw new Error(`DOCX extraction failed: this browser does not support local ZIP decompression for ${filename}. Use current Microsoft Edge or Google Chrome, or add a private backend parser.`);
+  }
+
+  try {
+    const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch (error) {
+    throw new Error(`DOCX extraction failed while decompressing ${filename}: ${error.message || 'unknown decompression error'}.`);
+  }
+}
+
+function docxXmlToText(xml) {
+  return xml
+    .replace(/<w:tab\b[^>]*\/>/g, '\t')
+    .replace(/<w:br\b[^>]*\/>/g, '\n')
+    .replace(/<\/w:p>/g, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
 }
 
 function chunkWords(text, wordsPerPage) {
@@ -230,7 +556,7 @@ function buildReport(caseId, docs) {
     timeline,
     repeatedPatterns,
     coursesOfConduct: buildCoursesOfConduct(docs),
-    extractionPlaceholder: 'OCR/text extraction for PDF, DOCX, JPG, and PNG files is intentionally left as a backend integration placeholder.',
+    extractionPlaceholder: 'Local extraction runs for TXT, DOCX, and embedded PDF text. Scanned PDFs and images keep a clear local OCR placeholder until a Tesseract worker or private OCR backend is connected.',
     aiPatternPlaceholder: 'OpenAI AI pattern analysis is intentionally left as a future integration placeholder and must stay limited to extracted upload text.',
     sourceBoundary: `This report is limited to ${docs.length} uploaded document(s) for ${caseName}${caseId ? ` (${caseId})` : ''}. It identifies quoted fact patterns, not legal findings.`,
   };
@@ -315,6 +641,7 @@ function makeCitation(doc, page, index) {
     docId: doc.id,
     documentName: doc.name,
     page: page.page,
+    sourceReference: page.sourceReference || pageSourceReference(doc.sourceReference || { documentName: doc.name }, page.page),
     quote: summarizeAround(page.text, Math.max(index, 0), 260),
   };
 }
@@ -371,12 +698,14 @@ function renderAdminList() {
       </div>
       <div class="tableWrap">
         <table>
-          <thead><tr><th>Document</th><th>Type</th><th>Submitter</th><th>Storage</th><th>Uploaded</th></tr></thead>
+          <thead><tr><th>Document</th><th>Type</th><th>Submitter</th><th>Status</th><th>Extracted text preview</th><th>Source</th><th>Uploaded</th></tr></thead>
           <tbody>${docs.map((doc) => `<tr>
-            <td><strong>${escapeHtml(doc.name)}</strong><small>${formatBytes(doc.size)} · ${escapeHtml(doc.extractionStatus)}</small></td>
+            <td><strong>${escapeHtml(doc.name)}</strong><small>${formatBytes(doc.size)} · ${escapeHtml(doc.mimeType)}</small></td>
             <td>${escapeHtml(doc.type)}</td>
             <td>${escapeHtml(doc.submitterName)}<small>${escapeHtml(doc.submitterEmail)}</small></td>
-            <td><span class="pill">Local private simulation</span></td>
+            <td>${statusPill(doc.extractionStatus)}<small>${escapeHtml(doc.extractionMessage || '')}${doc.extractionError ? `<br>Error: ${escapeHtml(doc.extractionError)}` : ''}</small></td>
+            <td class="previewCell">${escapeHtml(doc.extractionPreview || '[No preview available.]')}</td>
+            <td><span class="pill">Local private simulation</span><small>${escapeHtml(doc.sourceReference?.locator || doc.name)}${doc.sourceReference?.pageCount ? ` · ${doc.sourceReference.pageCount} page(s)` : ''}</small></td>
             <td>${formatDate(doc.uploadedAt)}</td>
           </tr>`).join('')}</tbody>
         </table>
@@ -398,7 +727,8 @@ function renderActiveDocuments() {
     ? docs.map((doc) => `<article class="docCard">
         <strong>${escapeHtml(doc.name)}</strong>
         <span>${escapeHtml(doc.caseName)} · ${escapeHtml(doc.type)} · ${doc.pages.length} page(s) · ${doc.actors.length} actor mention(s)</span>
-        <small>${escapeHtml(doc.extractionStatus)}</small>
+        <small>${escapeHtml(statusLabels[doc.extractionStatus] || doc.extractionStatus)} · ${escapeHtml(doc.extractionMessage || '')}</small>
+        <small>Preview: ${escapeHtml(doc.extractionPreview || '[No preview available.]')}</small>
         <small>${escapeHtml(doc.aiAnalysisStatus)}</small>
       </article>`).join('')
     : '<p class="empty">No documents uploaded for this case yet.</p>';
@@ -423,7 +753,12 @@ function renderSection(title, empty, items) {
 }
 
 function evidenceItem(title, body, citations) {
-  return `<article class="evidence"><h4>${escapeHtml(title)}</h4>${body ? `<p>${escapeHtml(body)}</p>` : ''}${citations.slice(0, 5).map((citation) => `<blockquote>“${escapeHtml(citation.quote)}”<cite>${escapeHtml(citation.documentName)}, p. ${citation.page}</cite></blockquote>`).join('')}</article>`;
+  return `<article class="evidence"><h4>${escapeHtml(title)}</h4>${body ? `<p>${escapeHtml(body)}</p>` : ''}${citations.slice(0, 5).map((citation) => `<blockquote>“${escapeHtml(citation.quote)}”<cite>${escapeHtml(citation.documentName)}, p. ${citation.page}${citation.sourceReference?.locator ? ` · ${escapeHtml(citation.sourceReference.locator)}` : ''}</cite></blockquote>`).join('')}</article>`;
+}
+
+function statusPill(status) {
+  const label = statusLabels[status] || status;
+  return `<span class="pill status-${escapeHtml(status)}">${escapeHtml(label)}</span>`;
 }
 
 function downloadReport(report) {
@@ -471,6 +806,7 @@ function toDocumentMetadata(doc) {
   const { pages, actors, privateBlob, ...metadata } = doc;
   return {
     ...metadata,
+    extractedPages: pages.map((page) => ({ page: page.page, text: page.text, sourceReference: page.sourceReference })),
     pageCount: pages.length,
     actorCount: actors.length,
   };
@@ -505,7 +841,12 @@ async function saveSubmission(submission, uploadedDocuments) {
         mimeType: doc.mimeType,
         size: doc.size,
         storedAt: new Date().toISOString(),
-        note: 'Original uploaded file blob stored in browser IndexedDB for local-only private storage simulation. Wire this to backend private object storage next.',
+        extractedText: doc.extractedText,
+        extractionStatus: doc.extractionStatus,
+        extractionMessage: doc.extractionMessage,
+        extractionError: doc.extractionError,
+        sourceReference: doc.sourceReference,
+        note: 'Original uploaded file blob stored in browser IndexedDB for local-only private storage simulation. Wire this to backend private object storage next; keep files private and send only extracted cited text to AI analysis.',
       });
     });
   });
@@ -525,14 +866,18 @@ async function loadStoredSubmissions() {
 
 function hydrateDocuments(submission) {
   return submission.documents.map((metadata) => {
-    const text = [
+    const text = metadata.extractedText || [
       `[${metadata.name} metadata loaded from local private-storage simulation.]`,
-      metadata.extractionStatus,
+      metadata.extractionMessage || metadata.extractionStatus,
       metadata.aiAnalysisStatus,
     ].join(' ');
     const doc = {
       ...metadata,
-      pages: splitTextIntoPages(text),
+      extractionStatus: metadata.extractionStatus || 'processed',
+      extractionMessage: metadata.extractionMessage || 'Loaded stored extraction metadata.',
+      extractionPreview: metadata.extractionPreview || previewText(text),
+      sourceReference: metadata.sourceReference || { documentName: metadata.name, sourceType: metadata.extension },
+      pages: metadata.extractedPages?.length ? metadata.extractedPages : splitTextIntoPages(text, metadata.sourceReference || { documentName: metadata.name, sourceType: metadata.extension }),
       actors: [],
     };
     doc.actors = extractActors(doc);
