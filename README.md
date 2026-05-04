@@ -2,7 +2,7 @@
 
 A secure, local-first AI-assisted legal document intake and review web app for organizing uploaded court transcripts, court orders, motions, exhibits, and official records by case/project.
 
-## Current phase: no-account document upload portal
+## Current phase: no-account document upload portal with OpenAI pattern analysis
 
 Record Room AI now includes a simple intake portal that does **not** require accounts or authentication yet.
 
@@ -14,17 +14,20 @@ Record Room AI now includes a simple intake portal that does **not** require acc
 - Extracts TXT, DOCX, and best-effort embedded PDF text locally in the browser.
 - Preserves document names, page numbers/source locators when available, extraction previews, and processing status (`uploaded`, `processing`, `processed`, `failed`).
 - Provides an admin preview list grouped by case/project without adding full user authentication.
-- Keeps the existing citation-backed document analysis shell.
-- Leaves explicit placeholders for scanned PDF/image OCR and OpenAI AI pattern analysis.
+- Keeps the existing citation-backed local document analysis shell.
+- Adds an OpenAI-powered pattern-analysis layer through a local Node API proxy that reads `OPENAI_API_KEY` from the environment.
+- Lets the user/admin ask custom questions about uploaded case documents and run preset analyses for timeline, judge conduct, GAL/guardian ad litem conduct, attorney conduct, due process concerns, notice/service issues, ex parte indicators, and contradictions between orders/transcripts.
+- Leaves explicit placeholders for scanned PDF/image OCR.
 
-> Local-only note: this static phase does not upload files to a server. IndexedDB data is private to the current browser profile/device, but it is still a development simulation rather than production private object storage.
+> Local-only note: uploaded file blobs remain in this browser profile/device IndexedDB. When OpenAI analysis is requested, the browser sends extracted page text, document names, page numbers/source locators, the selected preset/custom question, and case metadata to the local Node proxy. The original file blobs are not sent by the browser to OpenAI.
 
 ## Core safeguards
 
-- **Uploaded documents only:** reports are generated exclusively from text extracted from files selected by the user, or from placeholder text when extraction is not implemented yet.
-- **Citation-backed output:** every timeline event, repeated procedural pattern, and potential course-of-conduct finding includes a quoted source passage with document and page references when source text is available.
-- **Fact-pattern discipline:** the app labels actor-based results as fact patterns for attorney review and avoids conclusions about intent, bias, misconduct, ethics violations, or liability.
-- **Browser-side processing in this phase:** intake, simulated private storage, metadata listing, and the current analysis shell run in the browser; no remote AI provider, search index, or outside legal corpus is contacted.
+- **Uploaded documents only:** local reports and OpenAI requests are generated exclusively from text extracted from files selected by the user, or from placeholder text when extraction is not implemented yet.
+- **Citation-backed output:** every timeline event, repeated procedural pattern, potential course-of-conduct finding, and AI finding is required to include a quoted source passage with document name and page reference when source text is available.
+- **Fact-pattern discipline:** the app labels actor-based results as fact patterns for attorney review and instructs OpenAI to distinguish facts from possible legal issues.
+- **No unsupported conclusions:** OpenAI instructions prohibit conclusions about intent, bias, misconduct, ex parte contact, due process violations, service defects, ethics violations, or liability unless quoted uploaded text directly establishes the point.
+- **Server-side API key:** the OpenAI API key is read only from `OPENAI_API_KEY` on the local Node server and is never hard-coded into the browser code.
 
 ## Supported uploads
 
@@ -63,29 +66,65 @@ These steps work in Windows PowerShell.
    npm --version
    ```
 
-5. Install dependencies. This project currently uses no external npm packages; extraction relies on built-in browser APIs. This command prepares the local npm project:
+5. Install dependencies. This project currently uses no external npm packages; extraction relies on built-in browser APIs and the OpenAI proxy uses Node built-ins. This command prepares the local npm project:
 
    ```powershell
    npm install
    ```
 
-6. Start the local web server:
+6. Set your OpenAI API key for the current PowerShell window. Replace `sk-your-api-key-here` with the key from your OpenAI account. Do **not** paste this key into source files.
+
+   ```powershell
+   $env:OPENAI_API_KEY="sk-your-api-key-here"
+   ```
+
+   Optional: choose a different OpenAI model for the analysis endpoint. If omitted, the server uses `gpt-5-mini`.
+
+   ```powershell
+   $env:OPENAI_MODEL="gpt-5-mini"
+   ```
+
+7. Start the local web server from the same PowerShell window so it can read `OPENAI_API_KEY`:
 
    ```powershell
    npm run dev
    ```
 
-7. Open the app in your browser:
+8. Open the app in your browser:
 
    ```text
    http://localhost:5173
    ```
 
-8. Keep the PowerShell window open while using the app. To stop the server, click the PowerShell window and press:
+9. Upload documents, select a case, and use the OpenAI pattern-analysis buttons or custom question box. If the app says the key is missing, stop the server, set `$env:OPENAI_API_KEY`, and run `npm run dev` again.
+
+10. Keep the PowerShell window open while using the app. To stop the server, click the PowerShell window and press:
 
    ```text
    Ctrl+C
    ```
+
+
+## OpenAI pattern-analysis behavior
+
+The OpenAI analysis panel includes these presets:
+
+1. Timeline of events
+2. Pattern of conduct by judge
+3. Pattern of conduct by GAL/guardian ad litem
+4. Pattern of conduct by attorney
+5. Due process concerns
+6. Notice/service issues
+7. Ex parte communication indicators
+8. Contradictions between orders/transcripts
+
+For each request, the browser sends only extracted page text and source metadata to `/api/analyze`. The local Node server then calls the OpenAI Responses API using `OPENAI_API_KEY`. The prompt requires the model to:
+
+- Use extracted uploaded-document text as the only source material.
+- Cite document name, page number when available, and quoted source text for every finding.
+- Distinguish facts from possible legal issues for human review.
+- Avoid unsupported conclusions and explicitly state what is not established.
+- Produce report headings for findings, facts, possible legal issues, citations, unsupported/not-established items, and suggested human review questions.
 
 ## Development
 
@@ -94,7 +133,7 @@ npm run dev
 npm run test
 ```
 
-`npm run dev` starts a static local server on port 5173. `npm run test` currently runs a JavaScript syntax check.
+`npm run dev` starts the local Node server on port 5173 and exposes `/api/analyze` as a server-side OpenAI proxy. `npm run test` runs JavaScript syntax checks for the browser app and the Node server.
 
 ### Extraction and OCR dependencies
 
@@ -108,7 +147,7 @@ Required runtime tools:
 Future OCR dependency placeholder:
 
 - Scanned PDFs and JPG/PNG OCR should connect next to either a local Tesseract.js worker bundled with the app or a private backend OCR service.
-- Keep uploaded files private. Do not send original file blobs to OpenAI pattern analysis. The OpenAI integration placeholder should receive only extracted text snippets with document/page/source references.
+- Keep uploaded files private. Do not send original file blobs to OpenAI pattern analysis. The OpenAI integration receives extracted text snippets with document/page/source references through the local Node proxy.
 
 ## Review workflow
 
@@ -116,6 +155,8 @@ Future OCR dependency placeholder:
 2. Submit the upload to generate a unique case ID and save metadata/files in local-only simulated private storage.
 3. Review the admin document list grouped by case/project.
 4. Select a case to inspect extracted document counts, text previews, timeline events, repeated procedural patterns, and actor-based fact patterns in the existing analysis shell.
-5. Export the citation-backed JSON report for attorney review or further analysis.
+5. Use a preset OpenAI analysis button or enter a custom question about the uploaded case documents.
+6. Review the AI report output headings, findings, citations, unsupported/not-established items, and suggested human review questions.
+7. Export the citation-backed JSON report for attorney review or further analysis.
 
 > This app supports legal document review. It does not provide legal advice or replace review by a licensed attorney.

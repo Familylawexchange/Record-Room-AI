@@ -16,6 +16,23 @@ const statusLabels = {
   failed: 'Failed',
 };
 
+const aiPresets = [
+  { id: 'timeline', label: 'Timeline of events', prompt: 'Create a timeline of events using only dated or clearly sequential facts in the uploaded case documents.' },
+  { id: 'judge-conduct', label: 'Pattern of conduct by judge', prompt: 'Identify citation-backed patterns involving the judge. Do not infer intent, bias, misconduct, or legal conclusions unless the source text directly supports the limited issue to review.' },
+  { id: 'gal-conduct', label: 'Pattern of conduct by GAL/guardian ad litem', prompt: 'Identify citation-backed patterns involving the GAL or guardian ad litem. Separate observed facts from possible legal issues for human review.' },
+  { id: 'attorney-conduct', label: 'Pattern of conduct by attorney', prompt: 'Identify citation-backed patterns involving attorneys or counsel. Avoid unsupported conclusions and frame all issues as questions for human review.' },
+  { id: 'due-process', label: 'Due process concerns', prompt: 'Identify facts that may raise due process concerns, including opportunity to be heard, record access, ability to present evidence, or procedural fairness.' },
+  { id: 'notice-service', label: 'Notice/service issues', prompt: 'Identify facts that may indicate notice, service, mailing, delivery, hearing notice, or proof-of-service issues.' },
+  { id: 'ex-parte', label: 'Ex parte communication indicators', prompt: 'Identify facts that may indicate ex parte communications, off-record contacts, in-chambers communications, or communications without all parties present.' },
+  { id: 'contradictions', label: 'Contradictions between orders/transcripts', prompt: 'Compare orders, transcripts, motions, exhibits, and correspondence for citation-backed contradictions or tension between source passages.' },
+];
+
+const aiSourceLimits = {
+  maxPages: 80,
+  maxCharactersPerPage: 3200,
+  maxSourceCharacters: 110000,
+};
+
 const patternRules = [
   { name: 'Continuance or delay references', terms: ['continued', 'continuance', 'adjourned', 'reset', 'delay'] },
   { name: 'Denied or limited requests', terms: ['denied', 'overruled', 'refused', 'limited', 'excluded'] },
@@ -57,6 +74,11 @@ const elements = {
   patternCount: document.querySelector('#pattern-count'),
   reportOutput: document.querySelector('#report-output'),
   exportReport: document.querySelector('#export-report'),
+  aiPresetButtons: document.querySelector('#ai-preset-buttons'),
+  aiQuestion: document.querySelector('#ai-question'),
+  aiRunCustom: document.querySelector('#ai-run-custom'),
+  aiStatus: document.querySelector('#ai-status'),
+  aiReportOutput: document.querySelector('#ai-report-output'),
 };
 
 elements.uploadForm.addEventListener('submit', handleUpload);
@@ -66,6 +88,10 @@ elements.caseSelect.addEventListener('change', (event) => {
 });
 elements.exportReport.addEventListener('click', () => downloadReport(buildReport(activeCase, activeDocuments())));
 elements.clearLocal.addEventListener('click', clearLocalData);
+elements.aiRunCustom.addEventListener('click', () => runAiAnalysis({
+  label: 'Custom question',
+  prompt: elements.aiQuestion.value.trim(),
+}));
 
 bootstrap();
 
@@ -161,7 +187,7 @@ async function buildDocument(file, blob, submission) {
     sourceReference: buildSourceReference(file, submission),
     extractedText: '',
     extractionPreview: '',
-    aiAnalysisStatus: 'Placeholder only: OpenAI AI pattern analysis is not connected yet. Connect it after extraction and send only cited upload text.',
+    aiAnalysisStatus: 'Ready for OpenAI pattern analysis after text extraction. Only extracted page text is sent; original file blobs stay local.',
     pages: [],
     actors: [],
   };
@@ -557,7 +583,7 @@ function buildReport(caseId, docs) {
     repeatedPatterns,
     coursesOfConduct: buildCoursesOfConduct(docs),
     extractionPlaceholder: 'Local extraction runs for TXT, DOCX, and embedded PDF text. Scanned PDFs and images keep a clear local OCR placeholder until a Tesseract worker or private OCR backend is connected.',
-    aiPatternPlaceholder: 'OpenAI AI pattern analysis is intentionally left as a future integration placeholder and must stay limited to extracted upload text.',
+    aiPatternLayer: 'OpenAI pattern analysis is available through the local Node proxy when OPENAI_API_KEY is set. The browser sends extracted page text, document names, and page references only.',
     sourceBoundary: `This report is limited to ${docs.length} uploaded document(s) for ${caseName}${caseId ? ` (${caseId})` : ''}. It identifies quoted fact patterns, not legal findings.`,
   };
 }
@@ -674,6 +700,7 @@ function render() {
 
   renderAdminList();
   renderActiveDocuments();
+  renderAiControls();
   renderReport();
 }
 
@@ -732,6 +759,150 @@ function renderActiveDocuments() {
         <small>${escapeHtml(doc.aiAnalysisStatus)}</small>
       </article>`).join('')
     : '<p class="empty">No documents uploaded for this case yet.</p>';
+}
+
+function renderAiControls() {
+  const hasDocs = activeDocuments().length > 0;
+  elements.aiPresetButtons.innerHTML = aiPresets.map((preset) => `
+    <button type="button" class="secondary presetButton" data-preset-id="${escapeHtml(preset.id)}" ${hasDocs ? '' : 'disabled'}>${escapeHtml(preset.label)}</button>
+  `).join('');
+  elements.aiRunCustom.disabled = !hasDocs;
+  elements.aiQuestion.disabled = !hasDocs;
+  elements.aiPresetButtons.querySelectorAll('[data-preset-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const preset = aiPresets.find((candidate) => candidate.id === button.dataset.presetId);
+      if (preset) runAiAnalysis(preset);
+    });
+  });
+}
+
+async function runAiAnalysis(request) {
+  const docs = activeDocuments();
+  const question = normalizeWhitespace(request.prompt || '');
+  if (!docs.length) {
+    setAiStatus('Upload and select a case before running OpenAI analysis.', 'error');
+    return;
+  }
+  if (!question) {
+    setAiStatus('Enter a question or choose a preset analysis button.', 'error');
+    return;
+  }
+
+  const sourceMaterial = buildAiSourceMaterial(docs);
+  if (!sourceMaterial.pages.length) {
+    setAiStatus('No extracted document text is available for AI analysis yet.', 'error');
+    return;
+  }
+
+  setAiBusy(true);
+  setAiStatus(`Running OpenAI analysis for “${request.label}”…`, '');
+  elements.aiReportOutput.innerHTML = '<p class="empty">OpenAI is reviewing extracted page text and building citation-backed findings...</p>';
+
+  try {
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        caseId: activeCase,
+        caseName: docs[0]?.caseName || activeCase,
+        analysisType: request.label,
+        question,
+        sourceMaterial,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'OpenAI analysis failed.');
+    setAiStatus(`OpenAI analysis complete for “${request.label}”.`, 'success');
+    renderAiReport(payload.analysis || '[No analysis text returned.]', payload.model);
+  } catch (error) {
+    setAiStatus(error.message || 'OpenAI analysis failed.', 'error');
+    elements.aiReportOutput.innerHTML = `<p class="empty">${escapeHtml(error.message || 'OpenAI analysis failed.')}</p>`;
+  } finally {
+    setAiBusy(false);
+  }
+}
+
+function buildAiSourceMaterial(docs) {
+  let totalCharacters = 0;
+  const pages = [];
+  for (const doc of docs) {
+    for (const page of doc.pages || []) {
+      if (pages.length >= aiSourceLimits.maxPages || totalCharacters >= aiSourceLimits.maxSourceCharacters) break;
+      const text = normalizeWhitespace(page.text || '');
+      if (!text || text.startsWith('[No extractable text found')) continue;
+      const clipped = text.slice(0, aiSourceLimits.maxCharactersPerPage);
+      totalCharacters += clipped.length;
+      pages.push({
+        documentName: doc.name,
+        documentType: doc.type,
+        page: page.page || null,
+        sourceLocator: page.sourceReference?.locator || doc.sourceReference?.locator || doc.name,
+        text: clipped,
+      });
+    }
+    if (pages.length >= aiSourceLimits.maxPages || totalCharacters >= aiSourceLimits.maxSourceCharacters) break;
+  }
+  return {
+    sourceBoundary: `Extracted text only from ${docs.length} uploaded document(s). Original file blobs are not sent to OpenAI by the browser.`,
+    truncated: pages.length >= aiSourceLimits.maxPages || totalCharacters >= aiSourceLimits.maxSourceCharacters,
+    pages,
+  };
+}
+
+function renderAiReport(analysis, model) {
+  elements.aiReportOutput.innerHTML = `
+    <article class="aiReport">
+      <div class="aiReportMeta"><span class="pill">OpenAI${model ? ` · ${escapeHtml(model)}` : ''}</span><span>Requires document name, page when available, and quoted source text for every finding.</span></div>
+      ${markdownToHtml(analysis)}
+    </article>
+  `;
+}
+
+function markdownToHtml(markdown) {
+  const lines = String(markdown).split(/\r?\n/);
+  let inList = false;
+  const html = [];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      if (inList) { html.push('</ul>'); inList = false; }
+      continue;
+    }
+    const heading = line.match(/^(#{2,4})\s+(.+)$/);
+    if (heading) {
+      if (inList) { html.push('</ul>'); inList = false; }
+      const level = Math.min(heading[1].length + 1, 4);
+      html.push(`<h${level}>${escapeHtml(heading[2])}</h${level}>`);
+      continue;
+    }
+    const bullet = line.match(/^(?:[-*]|\d+\.)\s+(.+)$/);
+    if (bullet) {
+      if (!inList) { html.push('<ul>'); inList = true; }
+      html.push(`<li>${formatInlineMarkdown(bullet[1])}</li>`);
+      continue;
+    }
+    if (inList) { html.push('</ul>'); inList = false; }
+    html.push(`<p>${formatInlineMarkdown(line)}</p>`);
+  }
+  if (inList) html.push('</ul>');
+  return html.join('');
+}
+
+function formatInlineMarkdown(value) {
+  return escapeHtml(value).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+}
+
+function setAiBusy(isBusy) {
+  elements.aiRunCustom.disabled = isBusy || !activeDocuments().length;
+  elements.aiQuestion.disabled = isBusy || !activeDocuments().length;
+  elements.aiPresetButtons.querySelectorAll('button').forEach((button) => {
+    button.disabled = isBusy || !activeDocuments().length;
+  });
+}
+
+function setAiStatus(message, type) {
+  elements.aiStatus.className = `status${type ? ` ${type}` : ''}`;
+  elements.aiStatus.textContent = message;
 }
 
 function renderReport() {
