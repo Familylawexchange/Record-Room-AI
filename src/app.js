@@ -4,16 +4,22 @@ let activeCase = '';
 let databasePromise;
 
 const storageNotice = 'Private storage is simulated locally with this browser\'s IndexedDB. Files do not leave this device in the current static demo.';
-const acceptedExtensions = ['pdf', 'docx', 'txt', 'jpg', 'jpeg', 'png'];
+const acceptedExtensions = ['pdf', 'docx', 'doc', 'txt', 'jpg', 'jpeg', 'png'];
+const maxFileSizeBytes = 25 * 1024 * 1024;
 const textExtensions = ['txt'];
 const imageExtensions = ['jpg', 'jpeg', 'png'];
 const pdfExtension = 'pdf';
 const docxExtension = 'docx';
+const legacyDocExtension = 'doc';
 const statusLabels = {
   uploaded: 'Uploaded',
   processing: 'Processing',
   processed: 'Processed',
   failed: 'Failed',
+  waiting: 'waiting for files',
+  selected: 'files selected',
+  uploading: 'uploading',
+  ready: 'ready for review',
 };
 
 const aiPresets = [
@@ -178,9 +184,47 @@ const elements = {
   aiRunCustom: document.querySelector('#ai-run-custom'),
   aiStatus: document.querySelector('#ai-status'),
   aiReportOutput: document.querySelector('#ai-report-output'),
+  dropzone: document.querySelector('#dropzone'),
+  chooseDocuments: document.querySelector('#choose-documents'),
+  submitDocuments: document.querySelector('#submit-documents'),
+  selectedFileList: document.querySelector('#selected-file-list'),
+  uploadError: document.querySelector('#upload-error'),
+  uploadStatus: document.querySelector('#upload-status'),
 };
 
 elements.uploadForm.addEventListener('submit', handleUpload);
+elements.fileInput.addEventListener('change', () => handleFileSelection('file-input'));
+elements.chooseDocuments.addEventListener('click', (event) => {
+  event.stopPropagation();
+  elements.fileInput.click();
+});
+elements.dropzone.addEventListener('click', (event) => {
+  if (event.target !== elements.fileInput && event.target !== elements.chooseDocuments) elements.fileInput.click();
+});
+elements.dropzone.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    elements.fileInput.click();
+  }
+});
+['dragenter', 'dragover'].forEach((eventName) => elements.dropzone.addEventListener(eventName, (event) => {
+  event.preventDefault();
+  elements.dropzone.classList.add('dragging');
+}));
+['dragleave', 'drop'].forEach((eventName) => elements.dropzone.addEventListener(eventName, (event) => {
+  event.preventDefault();
+  elements.dropzone.classList.remove('dragging');
+}));
+elements.dropzone.addEventListener('drop', (event) => {
+  const files = Array.from(event.dataTransfer?.files || []);
+  console.log('[Record Room AI upload] drop event', files.map((file) => ({ name: file.name, size: file.size, type: file.type })));
+  setInputFiles(files);
+  handleFileSelection('drag-drop');
+});
+[elements.submitterName, elements.submitterEmail, elements.caseName].forEach((input) => {
+  input.addEventListener('input', updateSubmitAvailability);
+});
+
 elements.caseSelect.addEventListener('change', (event) => {
   activeCase = event.target.value;
   render();
@@ -220,6 +264,7 @@ async function handleUpload(event) {
   clearStatus();
 
   const files = Array.from(elements.fileInput.files || []);
+  console.log('[Record Room AI upload] submit event', { files: files.map((file) => ({ name: file.name, size: file.size, type: file.type })) });
   const error = validateUpload(files);
   if (error) {
     showError(error);
@@ -230,15 +275,17 @@ async function handleUpload(event) {
   const uploadedDocuments = [];
 
   try {
-    setProgress(3, 'Preparing local private storage...');
+    setUploadStatus('uploading');
+    console.log('[Record Room AI upload] upload started', { count: files.length });
+    setProgress(3, 'Uploading: preparing local private storage...');
     for (const [index, file] of files.entries()) {
       const baseProgress = Math.round((index / files.length) * 80) + 5;
-      setProgress(baseProgress, `Reading ${file.name}...`);
+      setProgress(baseProgress, `Uploading: reading ${file.name}...`);
       const storedFile = await readFileWithProgress(file, (fileProgress) => {
         const weighted = baseProgress + Math.round((fileProgress / files.length) * 0.7);
-        setProgress(Math.min(weighted, 88), `Storing ${file.name} locally...`);
+        setProgress(Math.min(weighted, 88), `Uploading: storing ${file.name} locally...`);
       });
-      setProgress(Math.min(baseProgress + 8, 90), `Extracting text from ${file.name}...`);
+      setProgress(Math.min(baseProgress + 8, 90), `Uploading: extracting text from ${file.name}...`);
       const doc = await buildDocument(file, storedFile.blob, submission);
       uploadedDocuments.push(doc);
     }
@@ -251,11 +298,19 @@ async function handleUpload(event) {
     documents.push(...uploadedDocuments);
     activeCase = submission.caseId;
     elements.uploadForm.reset();
-    setProgress(100, `Success: saved ${uploadedDocuments.length} file(s) under ${submission.caseId}.`);
+    renderSelectedFiles([]);
+    updateSubmitAvailability();
+    const hasExtractionFailure = uploadedDocuments.some((doc) => doc.extractionStatus === 'failed');
+    setUploadStatus(hasExtractionFailure ? 'extraction failed' : 'uploaded');
+    setProgress(100, `Uploaded: saved ${uploadedDocuments.length} file(s) under ${submission.caseId}.`);
     elements.status.className = 'status success';
     elements.status.textContent = `${submission.caseId} created for ${submission.caseName}. ${storageNotice}`;
+    setUploadStatus(hasExtractionFailure ? 'extraction failed' : 'ready for review');
+    console.log('[Record Room AI upload] upload complete', { caseId: submission.caseId, documents: uploadedDocuments.map((doc) => ({ name: doc.name, extractionStatus: doc.extractionStatus })) });
     render();
   } catch (error) {
+    console.error('[Record Room AI upload] upload failed', error);
+    setUploadStatus('extraction failed');
     showError(error.message || 'The upload could not be saved. Please try again.');
   }
 }
@@ -345,6 +400,7 @@ async function extractText(file, blob) {
 
   if (textExtensions.includes(extension)) return extractTxt(file, blob);
   if (extension === docxExtension) return extractDocx(file, blob);
+  if (extension === legacyDocExtension) return extractLegacyDocPlaceholder(file);
   if (extension === pdfExtension) return extractPdf(file, blob);
   if (imageExtensions.includes(extension)) return extractImageOcrPlaceholder(file);
 
@@ -421,6 +477,21 @@ async function extractPdf(file, blob) {
   });
 }
 
+
+function extractLegacyDocPlaceholder(file) {
+  const text = [
+    `[${file.name} is a legacy Microsoft Word .doc upload stored in local private IndexedDB.]`,
+    '[Parser placeholder: this static browser build accepts .doc files for upload, but legacy binary Word text extraction requires a private backend parser or local conversion step before AI analysis.]',
+  ].join(' ');
+  return extractionResult({
+    file,
+    text,
+    pages: [{ page: 1, text, sourceReference: { documentName: file.name, page: 1, sourceType: 'doc', locator: `${file.name}#doc-placeholder-1` } }],
+    message: 'Legacy DOC stored privately. Add a private backend parser or local conversion worker to extract binary Word text.',
+    engine: 'local-doc-parser-placeholder',
+  });
+}
+
 function extractImageOcrPlaceholder(file) {
   const text = [
     `[${file.name} is an image upload stored in local private IndexedDB.]`,
@@ -458,9 +529,73 @@ function validateUpload(files) {
   if (!elements.caseName.value.trim()) return 'Enter a case or project name before submitting.';
   if (!files.length) return 'Choose at least one document to upload.';
 
-  const invalid = files.find((file) => !acceptedExtensions.includes(getExtension(file.name)));
-  if (invalid) return `${invalid.name} is not supported. Upload PDF, DOCX, TXT, JPG, or PNG files only.`;
+  const selection = validateFileSelection(files);
+  if (selection.errors.length) return selection.errors.join(' ');
   return '';
+}
+
+function validateFileSelection(files) {
+  const errors = [];
+  const validFiles = [];
+  for (const file of files) {
+    const extension = getExtension(file.name);
+    if (!acceptedExtensions.includes(extension)) {
+      errors.push(`${file.name} is not supported. Upload PDF, DOCX, DOC, TXT, JPG, JPEG, or PNG files only.`);
+      continue;
+    }
+    if (file.size > maxFileSizeBytes) {
+      errors.push(`${file.name} is too large (${formatBytes(file.size)}). Maximum size is ${formatBytes(maxFileSizeBytes)} per file.`);
+      continue;
+    }
+    validFiles.push(file);
+  }
+  return { validFiles, errors };
+}
+
+function handleFileSelection(source) {
+  const files = Array.from(elements.fileInput.files || []);
+  console.log('[Record Room AI upload] file selection event', { source, files: files.map((file) => ({ name: file.name, size: file.size, type: file.type })) });
+  renderSelectedFiles(files);
+  updateSubmitAvailability();
+}
+
+function setInputFiles(files) {
+  const transfer = new DataTransfer();
+  files.forEach((file) => transfer.items.add(file));
+  elements.fileInput.files = transfer.files;
+}
+
+function renderSelectedFiles(files) {
+  const { errors } = validateFileSelection(files);
+  if (!files.length) {
+    elements.selectedFileList.innerHTML = '<li>No files selected yet.</li>';
+    elements.uploadError.textContent = '';
+    setUploadStatus('waiting for files');
+    setProgress(0, 'Waiting for files.');
+    return;
+  }
+
+  elements.selectedFileList.innerHTML = files.map((file) => {
+    const extension = getExtension(file.name);
+    const unsupported = !acceptedExtensions.includes(extension);
+    const oversized = file.size > maxFileSizeBytes;
+    const problem = unsupported ? 'Unsupported file type' : oversized ? `Too large; max ${formatBytes(maxFileSizeBytes)}` : 'Ready to upload';
+    return `<li class="${unsupported || oversized ? 'invalid' : 'valid'}">${escapeHtml(file.name)} <small>(${formatBytes(file.size)} · ${escapeHtml(extension.toUpperCase())}) — ${escapeHtml(problem)}</small></li>`;
+  }).join('');
+  elements.uploadError.textContent = errors.join(' ');
+  setUploadStatus(errors.length ? 'waiting for files' : 'files selected');
+  setProgress(0, errors.length ? 'Resolve file validation errors before upload.' : `${files.length} file(s) selected.`);
+}
+
+function updateSubmitAvailability() {
+  const files = Array.from(elements.fileInput.files || []);
+  const selection = validateFileSelection(files);
+  const formFieldsReady = Boolean(elements.submitterName.value.trim() && elements.submitterEmail.validity.valid && elements.caseName.value.trim());
+  elements.submitDocuments.disabled = !formFieldsReady || !files.length || Boolean(selection.errors.length) || !selection.validFiles.length;
+}
+
+function setUploadStatus(status) {
+  elements.uploadStatus.textContent = status;
 }
 
 function readFileWithProgress(file, onProgress) {
@@ -1710,7 +1845,9 @@ function showError(message) {
   elements.status.className = 'status error';
   elements.status.textContent = message;
   setProgress(0, 'Upload stopped. Resolve the error and try again.');
+  updateSubmitAvailability();
 }
+
 
 function formatBytes(bytes) {
   if (!bytes) return '0 B';

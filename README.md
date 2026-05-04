@@ -7,11 +7,11 @@ A secure, local-first AI-assisted legal document intake and review web app for o
 Record Room AI now includes a simple intake portal that does **not** require accounts or authentication yet.
 
 - Collects submitter name, email, case/project name, document type, optional notes, and one or more files.
-- Accepts PDF, DOCX, TXT, JPG/JPEG, and PNG files.
+- Accepts PDF, DOCX, DOC, TXT, JPG/JPEG, and PNG files up to 25 MB per file.
 - Generates a unique case ID for every submission, such as `RR-20260504-AB12CD34`.
 - Saves upload metadata, extracted text, extraction status, source references, and file blobs in the browser's IndexedDB as a **local-only private-storage simulation**.
-- Shows upload progress, success states, validation errors, storage errors, and extraction errors.
-- Extracts TXT, DOCX, and best-effort embedded PDF text locally in the browser.
+- Shows immediate selected file names, upload progress/status (`waiting for files`, `files selected`, `uploading`, `uploaded`, `extraction failed`, `ready for review`), validation errors, storage errors, and extraction errors.
+- Extracts TXT, DOCX, and best-effort embedded PDF text locally in the browser; accepted legacy DOC files are stored locally with a parser placeholder until a private backend/conversion worker is connected.
 - Preserves document names, page numbers/source locators when available, extraction previews, and processing status (`uploaded`, `processing`, `processed`, `failed`).
 - Provides an admin preview list grouped by case/project without adding full user authentication.
 - Keeps the existing citation-backed local document analysis shell.
@@ -21,7 +21,7 @@ Record Room AI now includes a simple intake portal that does **not** require acc
 - Tracks judge, GAL, attorney, prosecutor, clerk/staff/agency official fields; course-of-conduct indicators; actor interaction/alignment indicators; and motion/filing/order outcomes only when supported by cited uploaded text.
 - Lets the user/admin ask custom questions about uploaded case documents and run preset analyses for timeline, unified actor profiles, judge conduct, GAL/guardian ad litem conduct, attorney conduct, prosecutor conduct, motion outcomes, actor interactions, due process concerns, notice/service issues, ex parte indicators, and contradictions between orders/transcripts.
 - Adds UI filters for actor name/type, role served, represented party, prosecutor office, court, county, state, case number, document type, date range, issue type, and confidence level.
-- Leaves explicit placeholders for scanned PDF/image OCR.
+- Leaves explicit placeholders for legacy DOC parsing and scanned PDF/image OCR.
 
 > Local-only note: uploaded file blobs remain in this browser profile/device IndexedDB. When OpenAI analysis is requested, the browser sends extracted page text, document names, page numbers/source locators, the selected preset/custom question, and case metadata to the local Node proxy. The original file blobs are not sent by the browser to OpenAI.
 
@@ -63,16 +63,40 @@ The analysis layer uses neutral labels such as “alignment observed,” “recu
 
 ## Supported uploads
 
+The upload control is both clickable and drag/drop capable. Use **Choose Documents** or drag files onto the upload card. The hidden file input accepts multiple files and is wired to the visible upload area.
+
+Accepted file types:
+
 - PDF (`.pdf`)
 - DOCX (`.docx`)
+- DOC (`.doc`)
 - TXT (`.txt`)
 - JPG/JPEG (`.jpg`, `.jpeg`)
 - PNG (`.png`)
+
+Upload validation:
+
+- Maximum size: **25 MB per file**.
+- Unsupported file extensions show a clear validation message before submission.
+- Oversized files show a clear validation message before submission.
+- **Submit Documents** stays disabled until required submitter/case fields are complete and at least one selected file is valid with no validation errors.
+- Selected file names, sizes, and per-file readiness/errors display immediately after choosing or dropping files.
+- Browser console logs are emitted for local testing when files are selected, dropped, submitted, uploaded, or fail.
+
+Exactly how uploads work:
+
+1. The browser receives the files from the hidden multi-file input connected to the visible upload area.
+2. Client-side validation checks each file extension and size before upload starts.
+3. On submit, Record Room AI creates a unique case ID, reads each selected file with `FileReader`, and stores each original file blob in the browser's IndexedDB local-private-storage simulation.
+4. The app extracts text locally where supported, creates page/source metadata, builds previews, and saves submission metadata.
+5. The uploaded documents are immediately added to the admin preview/document list grouped by case/project and become available in the analysis shell.
+6. OpenAI analysis, when requested, sends extracted text/page metadata only to the local Node proxy; original file blobs remain in IndexedDB.
 
 Extraction behavior in this static local-first phase:
 
 - TXT files are read directly in the browser.
 - DOCX files are parsed locally by reading `word/document.xml` from the uploaded DOCX ZIP package. Current Microsoft Edge and Google Chrome builds include the browser `DecompressionStream` API needed for compressed DOCX entries; if another browser lacks it, the app shows a clear local extraction error.
+- DOC files are accepted and stored privately, but legacy binary Word text extraction is a parser placeholder until a private backend parser or local conversion worker is connected.
 - PDFs use a best-effort local parser for embedded text operators and Flate-compressed streams. This works for many text PDFs but is not a replacement for PDF.js or a backend parser.
 - Scanned PDFs and JPG/JPEG/PNG images are kept private and receive a clear OCR placeholder. Add a local Tesseract.js worker or private backend OCR job at the marked placeholder before AI analysis.
 - Every document stores extracted text, a preview, extraction status/message/error, document name, page number when available, and source locator metadata in IndexedDB.
@@ -110,6 +134,12 @@ These steps work in Windows PowerShell.
    $env:OPENAI_API_KEY="sk-your-api-key-here"
    ```
 
+   If `.env` is not loading locally, Windows users can also set the variable for the current Command Prompt session with:
+
+   ```cmd
+   set OPENAI_API_KEY=your_key_here
+   ```
+
    Optional: choose a different OpenAI model for the analysis endpoint. If omitted, the server uses `gpt-5-mini`.
 
    ```powershell
@@ -128,9 +158,19 @@ These steps work in Windows PowerShell.
    http://localhost:5173
    ```
 
-9. Upload documents, select a case, and use the OpenAI pattern-analysis buttons or custom question box. If the app says the key is missing, stop the server, set `$env:OPENAI_API_KEY`, and run `npm run dev` again.
+9. Test uploads locally:
 
-10. Keep the PowerShell window open while using the app. To stop the server, click the PowerShell window and press:
+   - Fill in name, email, case/project name, and document type.
+   - Click **Choose Documents** and select one or more accepted files, or drag files onto the upload area.
+   - Confirm file names appear immediately below the upload area.
+   - Try an unsupported file type to confirm the validation error appears and **Submit Documents** remains disabled.
+   - Try a file larger than 25 MB to confirm the file-size validation appears.
+   - Open browser DevTools with `F12`, choose the **Console** tab, and confirm selection/upload events are logged.
+   - Submit valid files and confirm they appear in the admin preview/document list grouped by case/project.
+
+10. Upload documents, select a case, and use the OpenAI pattern-analysis buttons or custom question box. If the app says the key is missing, stop the server, set `$env:OPENAI_API_KEY` (or `set OPENAI_API_KEY=your_key_here` in Command Prompt), and run `npm run dev` again.
+
+11. Keep the PowerShell window open while using the app. To stop the server, click the PowerShell window and press:
 
    ```text
    Ctrl+C
