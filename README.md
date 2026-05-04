@@ -16,7 +16,11 @@ Record Room AI now includes a simple intake portal that does **not** require acc
 - Provides an admin preview list grouped by case/project without adding full user authentication.
 - Keeps the existing citation-backed local document analysis shell.
 - Adds an OpenAI-powered pattern-analysis layer through a local Node API proxy that reads `OPENAI_API_KEY` from the environment.
-- Lets the user/admin ask custom questions about uploaded case documents and run preset analyses for timeline, judge conduct, GAL/guardian ad litem conduct, attorney conduct, due process concerns, notice/service issues, ex parte indicators, and contradictions between orders/transcripts.
+- Adds a unified Actor Tracking & Conduct Analysis layer for judges, guardians ad litem, attorneys, prosecutors, clerks, DFCS/CPS workers, court staff, agency officials, and other court officials.
+- Extracts actor profile fields from uploaded materials where available, including names, roles, offices/firms/agencies, bar or license numbers, signature/contact details from public filings, court/county/state, case numbers, represented party/served role, first/last appearance dates, and source documents.
+- Tracks judge, GAL, attorney, prosecutor, clerk/staff/agency official fields; course-of-conduct indicators; actor interaction/alignment indicators; and motion/filing/order outcomes only when supported by cited uploaded text.
+- Lets the user/admin ask custom questions about uploaded case documents and run preset analyses for timeline, unified actor profiles, judge conduct, GAL/guardian ad litem conduct, attorney conduct, prosecutor conduct, motion outcomes, actor interactions, due process concerns, notice/service issues, ex parte indicators, and contradictions between orders/transcripts.
+- Adds UI filters for actor name/type, role served, represented party, prosecutor office, court, county, state, case number, document type, date range, issue type, and confidence level.
 - Leaves explicit placeholders for scanned PDF/image OCR.
 
 > Local-only note: uploaded file blobs remain in this browser profile/device IndexedDB. When OpenAI analysis is requested, the browser sends extracted page text, document names, page numbers/source locators, the selected preset/custom question, and case metadata to the local Node proxy. The original file blobs are not sent by the browser to OpenAI.
@@ -25,9 +29,37 @@ Record Room AI now includes a simple intake portal that does **not** require acc
 
 - **Uploaded documents only:** local reports and OpenAI requests are generated exclusively from text extracted from files selected by the user, or from placeholder text when extraction is not implemented yet.
 - **Citation-backed output:** every timeline event, repeated procedural pattern, potential course-of-conduct finding, and AI finding is required to include a quoted source passage with document name and page reference when source text is available.
-- **Fact-pattern discipline:** the app labels actor-based results as fact patterns for attorney review and instructs OpenAI to distinguish facts from possible legal issues.
-- **No unsupported conclusions:** OpenAI instructions prohibit conclusions about intent, bias, misconduct, ex parte contact, due process violations, service defects, ethics violations, or liability unless quoted uploaded text directly establishes the point.
+- **Fact-pattern discipline:** the app labels actor-based results as fact patterns for attorney review and instructs OpenAI to distinguish documented facts, reasonable inferences, possible legal issues, and unsupported allegations.
+- **Identity verification:** the actor layer does not merge people by last name alone. It uses full name, initials, title, office, court, county, state, signature block, bar/license number, email, case number, and document context when available. Uncertain identities stay separate and are labeled “Possible match — needs human review.”
+- **Pattern threshold:** Record Room AI does not call something a “pattern” unless there are at least two cited examples, unless a user specifically requests single-incident analysis.
+- **No unsupported conclusions:** OpenAI instructions prohibit conclusions about intent, bias, misconduct, corruption, collusion, conspiracy, fraud, ex parte contact, due process violations, service defects, ethics violations, or liability unless quoted uploaded text directly establishes the limited factual premise.
 - **Server-side API key:** the OpenAI API key is read only from `OPENAI_API_KEY` on the local Node server and is never hard-coded into the browser code.
+
+## Unified Actor Tracking & Conduct Analysis
+
+Record Room AI performs document-based actor tracking, course-of-conduct review, interaction/alignment review, and pattern analysis using uploaded materials only. The actor layer is designed for legal-document organization and human legal review; it does **not** decide that anyone acted improperly, violated a rule, or had a particular motive. All outputs require human legal review before use in court filings, complaints, investigations, or legal strategy.
+
+The local report and OpenAI prompt support these report templates:
+
+- Unified Actor Profile Report
+- Judicial Pattern Report
+- GAL Conduct Report
+- Attorney Conduct & Activity Report
+- Prosecutor Conduct & Activity Report
+- Court Staff / Agency Conduct Report
+- Course of Conduct Report
+- Actor Interaction / Alignment Report
+- Motion Outcome Chart
+- Filing Frequency Report
+- Hearing Participation Report
+- Due Process Timeline
+- Notice and Service Defect Report
+- Ex Parte Indicator Report
+- Contradiction Chart
+- Missing Evidence Checklist
+- Human Review Questions Report
+
+The analysis layer uses neutral labels such as “alignment observed,” “recurring sequence observed,” “documented communication exists,” and “possible issue requiring human review.” If a motion outcome, identity match, date, quote, page number, notice/service fact, or prevailing party is unclear, the app labels it as not determinable from available documents rather than filling gaps.
 
 ## Supported uploads
 
@@ -117,6 +149,10 @@ The OpenAI analysis panel includes these presets:
 6. Notice/service issues
 7. Ex parte communication indicators
 8. Contradictions between orders/transcripts
+9. Unified Actor Profile Report
+10. Prosecutor Conduct & Activity Report
+11. Motion Outcome Chart
+12. Actor Interaction / Alignment Report
 
 For each request, the browser sends only extracted page text and source metadata to `/api/analyze`. The local Node server then calls the OpenAI Responses API using `OPENAI_API_KEY`. The prompt requires the model to:
 
@@ -124,7 +160,10 @@ For each request, the browser sends only extracted page text and source metadata
 - Cite document name, page number when available, and quoted source text for every finding.
 - Distinguish facts from possible legal issues for human review.
 - Avoid unsupported conclusions and explicitly state what is not established.
-- Produce report headings for findings, facts, possible legal issues, citations, unsupported/not-established items, and suggested human review questions.
+- Verify actor identity using more than last name when possible and label uncertain identities for human review.
+- Track motion outcomes only when determinable; otherwise state “Outcome not determinable from available documents.”
+- Require at least two cited examples before labeling something a pattern.
+- Produce relevant actor, conduct, motion, issue, citation, missing-evidence, and human-review-question headings.
 
 ## Development
 
@@ -154,9 +193,10 @@ Future OCR dependency placeholder:
 1. Enter submitter name, email, case/project name, document type, optional notes, and one or more accepted files.
 2. Submit the upload to generate a unique case ID and save metadata/files in local-only simulated private storage.
 3. Review the admin document list grouped by case/project.
-4. Select a case to inspect extracted document counts, text previews, timeline events, repeated procedural patterns, and actor-based fact patterns in the existing analysis shell.
-5. Use a preset OpenAI analysis button or enter a custom question about the uploaded case documents.
-6. Review the AI report output headings, findings, citations, unsupported/not-established items, and suggested human review questions.
-7. Export the citation-backed JSON report for attorney review or further analysis.
+4. Select a case to inspect extracted document counts, text previews, timeline events, unified actor profiles, repeated procedural patterns, motion outcomes, and actor-based fact patterns in the analysis shell.
+5. Use the actor/conduct filters to narrow by actor, office, court, county, state, case number, document type, date range, issue type, or confidence level.
+6. Use a preset OpenAI analysis button or enter a custom question about the uploaded case documents.
+7. Review the AI report output headings, findings, citations, unsupported/not-established items, and suggested human review questions.
+8. Export the citation-backed JSON report for attorney review or further analysis.
 
-> This app supports legal document review. It does not provide legal advice or replace review by a licensed attorney.
+> This app supports legal document review. It does not provide legal advice, does not make final legal or ethics conclusions, and does not replace review by a licensed attorney. All actor-tracking, course-of-conduct, and pattern-analysis outputs require human legal review before use.

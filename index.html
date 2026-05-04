@@ -21,6 +21,7 @@
             <span>📚 Uploaded documents only</span>
             <span>📄 Page-level citations</span>
             <span>⚖️ Facts separated from legal conclusions</span>
+            <span>🧑‍⚖️ Unified actor tracking</span>
           </div>
         </div>
         <div class="heroIcon" aria-hidden="true">⚖️</div>
@@ -86,6 +87,8 @@
             <li>The app treats uploaded files as the complete evidentiary universe.</li>
             <li>Every generated finding includes a quote and document/page reference when text is extractable.</li>
             <li>Actor-based results are labeled as fact patterns for attorney review.</li>
+            <li>Unified profiles cover judges, GALs, attorneys, prosecutors, clerks, DFCS/CPS workers, court staff, and other officials.</li>
+            <li>Identity matching never relies on last name alone; uncertain identities stay separate and are labeled for human review.</li>
             <li>Local-only storage uses this browser's IndexedDB to simulate private storage; the Node server only receives extracted text when OpenAI analysis is requested.</li>
             <li>TXT, DOCX, and embedded PDF text extraction run locally; scanned PDFs/images keep a clear local OCR placeholder until a private OCR worker/backend is connected.</li>
             <li>OpenAI analysis uses <code>OPENAI_API_KEY</code> on the local server and requires citations with document name, page when available, and quoted source text.</li>
@@ -144,10 +147,32 @@
           <div><strong id="document-count">0</strong><span>Documents</span></div>
           <div><strong id="timeline-count">0</strong><span>Timeline events</span></div>
           <div><strong id="pattern-count">0</strong><span>Repeated patterns</span></div>
+          <div><strong id="actor-count">0</strong><span>Actor profiles</span></div>
+          <div><strong id="motion-count">0</strong><span>Motion/order rows</span></div>
         </div>
+
+        <details class="filterPanel" open>
+          <summary>Actor Tracking & Conduct Analysis filters</summary>
+          <div class="filterGrid">
+            <label>Actor name<input id="actor-name-filter" placeholder="Name in uploaded documents" /></label>
+            <label>Actor type<select id="actor-type-filter"><option value="">Any actor type</option><option>Judge</option><option>GAL</option><option>Attorney</option><option>Prosecutor</option><option>Clerk</option><option>DFCS/CPS Worker</option><option>Court Staff</option><option>Court Official</option><option>Agency Official</option><option>Other Official</option></select></label>
+            <label>Role represented/served<input id="role-served-filter" placeholder="court, agency, child, party..." /></label>
+            <label>Party represented<input id="party-filter" placeholder="mother, father, state, child..." /></label>
+            <label>Prosecutor office<input id="prosecutor-office-filter" placeholder="DA, solicitor, state attorney..." /></label>
+            <label>Court<input id="court-filter" placeholder="Court name" /></label>
+            <label>County<input id="county-filter" placeholder="County" /></label>
+            <label>State<input id="state-filter" placeholder="State" /></label>
+            <label>Case number<input id="case-number-filter" placeholder="Case/docket number" /></label>
+            <label>Document type<select id="document-type-filter"><option value="">Any document type</option><option>Transcript</option><option>Order</option><option>Motion</option><option>Exhibit</option><option>Official Record</option><option>Correspondence</option><option>Other</option></select></label>
+            <label>Date from<input id="start-date-filter" type="date" /></label>
+            <label>Date to<input id="end-date-filter" type="date" /></label>
+            <label>Issue type<select id="issue-type-filter"><option value="">Any issue type</option><option>due process</option><option>notice/service</option><option>ex parte</option><option>retaliation</option><option>custody restriction</option><option>visitation/supervision</option><option>GAL conduct</option><option>prosecutorial conduct</option><option>probation/treatment court</option><option>sanctions/fees</option><option>jurisdiction/UCCJEA</option><option>sealing/protective orders</option><option>discovery</option><option>contempt</option><option>emergency relief</option><option>judicial recusal/disqualification</option><option>other</option></select></label>
+            <label>Minimum confidence<select id="confidence-filter"><option value="">Any confidence</option><option>Possible match — needs human review</option><option>Medium</option><option>High</option></select></label>
+          </div>
+        </details>
         <div class="placeholderGrid">
           <div class="placeholderBox"><strong>Local extraction status</strong><span>TXT, DOCX, and embedded PDF text are parsed in the browser. Scanned PDFs/JPG/PNG files show an OCR placeholder until a local Tesseract worker or private OCR backend is connected.</span></div>
-          <div class="placeholderBox"><strong>OpenAI pattern analysis</strong><span>When OPENAI_API_KEY is set, the AI panel sends extracted page text, document names, and page/source locators to the local proxy and requires citation-backed findings.</span></div>
+          <div class="placeholderBox"><strong>OpenAI pattern analysis</strong><span>When OPENAI_API_KEY is set, the AI panel sends extracted page text, document names, page/source locators, and the unified actor-analysis request to the local proxy and requires citation-backed findings.</span></div>
         </div>
         <div id="report-output"></div>
       </section>
