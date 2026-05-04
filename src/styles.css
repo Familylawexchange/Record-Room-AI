@@ -255,3 +255,142 @@ cite {
   .heroIcon { display: none; }
   .sectionHeader { align-items: stretch; flex-direction: column; }
 }
+
+textarea {
+  background: #fff;
+  border: 1px solid #cbd8e6;
+  border-radius: 14px;
+  color: #162033;
+  font: inherit;
+  min-height: 94px;
+  padding: 0.8rem 0.9rem;
+  resize: vertical;
+}
+
+button.secondary {
+  background: #e8f0f8;
+  color: #143d67;
+}
+
+.formIntro,
+.docCard small,
+td small,
+.placeholderBox span,
+.caseGroupHeader span {
+  color: #56657a;
+}
+
+.compactGrid {
+  gap: 0.8rem;
+}
+
+.progressWrap {
+  display: grid;
+  gap: 0.35rem;
+  margin: 1rem 0;
+}
+
+progress {
+  accent-color: #143d67;
+  inline-size: 100%;
+}
+
+.status.success {
+  color: #17613a;
+  font-weight: 800;
+}
+
+.status.error {
+  color: #a12a2a;
+  font-weight: 800;
+}
+
+.adminPanel .eyebrow {
+  margin-bottom: 0.3rem;
+}
+
+.adminList {
+  display: grid;
+  gap: 1rem;
+}
+
+.caseGroup {
+  background: #fbfdff;
+  border: 1px solid #dbe6f1;
+  border-radius: 22px;
+  overflow: hidden;
+}
+
+.caseGroupHeader {
+  align-items: center;
+  background: #f4f8fc;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.caseGroupHeader div,
+td,
+th,
+.placeholderBox,
+.docCard small {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  inline-size: 100%;
+}
+
+th,
+td {
+  border-top: 1px solid #e0e9f2;
+  padding: 0.85rem 1rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  color: #102d4c;
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pill {
+  background: #edf7f1;
+  border: 1px solid #bbdec8;
+  border-radius: 999px;
+  color: #17613a;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 800;
+  padding: 0.3rem 0.55rem;
+  white-space: nowrap;
+}
+
+.placeholderGrid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.placeholderBox {
+  background: #fff9ec;
+  border: 1px solid #f2ddb0;
+  border-radius: 18px;
+  padding: 0.9rem;
+}
+
+@media (max-width: 820px) {
+  .caseGroupHeader,
+  .placeholderGrid { grid-template-columns: 1fr; }
+  .caseGroupHeader { align-items: stretch; flex-direction: column; }
+}
