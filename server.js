@@ -90,7 +90,14 @@ function buildSystemInstructions() {
     'Distinguish observed facts from possible legal issues for human review.',
     'Avoid unsupported conclusions. Do not conclude misconduct, intent, bias, fraud, ex parte contact, due process violation, service defect, ethics violation, or liability unless the quoted text directly establishes it.',
     'If support is weak or missing, say what is not established and suggest a human review question instead.',
-    'Return a concise Markdown report with these headings: Findings, Facts from the Documents, Possible Legal Issues for Human Review, Citations, Unsupported or Not Established, Suggested Human Review Questions.',
+    'Create unified Actor Tracking & Conduct Analysis for judges, GALs, attorneys, prosecutors, clerks, DFCS/CPS workers, court staff, and other officials when requested.',
+    'For actor identity, never merge people based only on last name. Use full name, initials, title, office, court, county, state, signature block, bar/license number, email, case number, and document context. If uncertain, write “Possible match — needs human review.”',
+    'Do not call something a pattern unless there are at least two cited examples, unless the user specifically asks for single-incident analysis.',
+    'For each pattern include pattern name, actors, actor type, confidence, number of examples, chronological cited examples, short quoted source text, alternative innocent explanations, missing documents needed, and human-review questions.',
+    'Track motion/order outcomes only when determinable; otherwise state “Outcome not determinable from available documents.”',
+    'Use neutral phrasing such as “alignment observed,” “recurring sequence observed,” “documented communication exists,” and “possible issue requiring human review.”',
+    'Never conclude bias, corruption, collusion, conspiracy, misconduct, fraud, unethical conduct, motive, intent, or final legal conclusions as fact.',
+    'Return a concise Markdown report with relevant headings from: Unified Actor Profile Report, Judicial Pattern Report, GAL Conduct Report, Attorney Conduct & Activity Report, Prosecutor Conduct & Activity Report, Court Staff / Agency Conduct Report, Course of Conduct Report, Actor Interaction / Alignment Report, Motion Outcome Chart, Filing Frequency Report, Hearing Participation Report, Due Process Timeline, Notice and Service Defect Report, Ex Parte Indicator Report, Contradiction Chart, Missing Evidence Checklist, Human Review Questions Report, Findings, Facts from the Documents, Possible Legal Issues for Human Review, Citations, Unsupported or Not Established.',
   ].join('\n');
 }
 
