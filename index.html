@@ -10,11 +10,12 @@
     <main>
       <section class="hero panel">
         <div>
-          <p class="eyebrow">🔒 Local-first legal document review</p>
+          <p class="eyebrow">🔒 Local-first legal document intake and review</p>
           <h1>Record Room AI</h1>
           <p class="lede">
-            Upload transcripts, orders, motions, exhibits, and official records. The review engine extracts available text,
-            organizes evidence by case, and produces citation-backed reports that never rely on outside facts.
+            A no-account upload portal for transcripts, orders, motions, exhibits, and official records. Each submission
+            receives a unique case ID, stores document metadata locally, and keeps the existing analysis shell limited to
+            uploaded source material.
           </p>
           <div class="guardrails">
             <span>📚 Uploaded documents only</span>
@@ -27,47 +28,85 @@
 
       <section class="grid two">
         <form class="panel uploader" id="upload-form">
-          <h2>☁️ Upload case documents</h2>
+          <h2>☁️ No-account document upload</h2>
+          <p class="formIntro">Submitter details are saved with the upload metadata. No login or full authentication is enabled yet.</p>
+
+          <div class="grid two compactGrid">
+            <label>
+              Your name
+              <input id="submitter-name" autocomplete="name" required placeholder="Jane Doe" />
+            </label>
+            <label>
+              Email
+              <input id="submitter-email" autocomplete="email" required type="email" placeholder="jane@example.com" />
+            </label>
+          </div>
+
           <label>
-            Case ID
-            <input id="case-id" value="CASE-001" placeholder="e.g. 24-FC-001" />
+            Case / project name
+            <input id="case-name" required placeholder="Smith v. Smith records" />
           </label>
+
           <label>
             Document type
-            <select id="document-type">
+            <select id="document-type" required>
               <option>Transcript</option>
               <option>Order</option>
               <option>Motion</option>
               <option>Exhibit</option>
               <option>Official Record</option>
+              <option>Correspondence</option>
               <option>Other</option>
             </select>
           </label>
+
+          <label>
+            Optional notes
+            <textarea id="notes" placeholder="Add context, source location, production batch, or handling notes."></textarea>
+          </label>
+
           <label class="dropzone">
             <span class="dropIcon">⬆️</span>
-            <strong>Choose files</strong>
-            <span>TXT, MD, CSV, JSON, HTML, XML, log files, and text-exported court records</span>
-            <input id="file-input" multiple type="file" accept=".txt,.md,.csv,.json,.html,.htm,.xml,.log,text/*" />
+            <strong>Choose private local files</strong>
+            <span>PDF, DOCX, TXT, JPG, and PNG files are accepted</span>
+            <input id="file-input" multiple required type="file" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png" />
           </label>
+
+          <div class="progressWrap" aria-live="polite">
+            <progress id="upload-progress" value="0" max="100"></progress>
+            <span id="progress-label">Waiting for files.</span>
+          </div>
           <p class="status" id="status">Upload court records to begin an evidence-bound review.</p>
+          <button type="submit">Submit documents</button>
         </form>
 
         <div class="panel">
           <h2>🛡️ Source boundary</h2>
           <ul class="checks">
             <li>The app treats uploaded files as the complete evidentiary universe.</li>
-            <li>Every generated finding includes a quote and document/page reference.</li>
+            <li>Every generated finding includes a quote and document/page reference when text is extractable.</li>
             <li>Actor-based results are labeled as fact patterns for attorney review.</li>
-            <li>Processing runs in the browser; no remote AI provider, search index, or outside legal corpus is contacted.</li>
-            <li>Scanned PDFs and binary office files should be OCR/text-exported before upload for reliable extraction.</li>
+            <li>Local-only storage uses this browser's IndexedDB to simulate private storage; no server upload happens in this static phase.</li>
+            <li>OCR/text extraction and OpenAI AI pattern analysis are explicit placeholders for the next backend phase.</li>
           </ul>
         </div>
       </section>
 
+      <section class="panel adminPanel">
+        <div class="sectionHeader">
+          <div>
+            <p class="eyebrow">Admin preview · no authentication yet</p>
+            <h2>📁 Document list grouped by case / project</h2>
+          </div>
+          <button id="clear-local" class="secondary" type="button">Clear local demo data</button>
+        </div>
+        <div class="adminList" id="admin-list"></div>
+      </section>
+
       <section class="panel">
         <div class="sectionHeader">
-          <h2>📁 Cases and documents</h2>
-          <select id="case-select"><option>CASE-001</option></select>
+          <h2>🔎 Analysis shell cases</h2>
+          <select id="case-select"><option>No uploads yet</option></select>
         </div>
         <div class="documents" id="documents"></div>
       </section>
@@ -82,6 +121,10 @@
           <div><strong id="document-count">0</strong><span>Documents</span></div>
           <div><strong id="timeline-count">0</strong><span>Timeline events</span></div>
           <div><strong id="pattern-count">0</strong><span>Repeated patterns</span></div>
+        </div>
+        <div class="placeholderGrid">
+          <div class="placeholderBox"><strong>OCR/text extraction placeholder</strong><span>PDF, DOCX, JPG, and PNG files are stored locally now. Server-side OCR/parsing hooks belong here next.</span></div>
+          <div class="placeholderBox"><strong>OpenAI pattern analysis placeholder</strong><span>Future AI review should consume only extracted upload text and return citation-backed findings.</span></div>
         </div>
         <div id="report-output"></div>
       </section>
