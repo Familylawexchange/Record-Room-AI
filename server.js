@@ -2,6 +2,7 @@ const http = require('node:http');
 const fs = require('node:fs/promises');
 const fss = require('node:fs');
 const path = require('node:path');
+const Database = require('better-sqlite3');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
@@ -9,7 +10,7 @@ const { URL } = require('node:url');
 
 const PORT = Number(process.env.PORT || 5173);
 const ROOT = __dirname;
-const DATA_ROOT = process.env.RECORD_ROOM_DATA_DIR || '/record-room-data';
+const DATA_ROOT = path.resolve(process.env.RECORD_ROOM_DATA_DIR || path.join(ROOT, 'record-room-data'));
 const UPLOAD_DIR = process.env.RECORD_ROOM_UPLOAD_DIR || path.join(DATA_ROOT, 'uploads');
 const TEXT_DIR = process.env.RECORD_ROOM_TEXT_DIR || path.join(DATA_ROOT, 'extracted-text');
 const DB_PATH = process.env.RECORD_ROOM_DB_PATH || path.join(DATA_ROOT, 'database.sqlite');
@@ -20,6 +21,12 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 30;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5-mini';
+const REQUIRED_TABLES = [
+  'sources', 'scanner_jobs', 'raw_results', 'documents', 'extracted_text', 'profiles', 'profile_aliases',
+  'claims', 'claim_sources', 'review_queue', 'research_leads', 'search_index',
+];
+
+let db;
 
 const allowedExtensions = new Set(['.pdf', '.docx', '.doc', '.txt', '.jpg', '.jpeg', '.png']);
 const allowedMimePrefixes = new Set(['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'image/jpeg', 'image/png']);
@@ -57,6 +64,8 @@ const server = http.createServer(async (request, response) => {
   try {
     await ensureReady();
     const url = new URL(request.url, `http://${request.headers.host}`);
+    if (url.pathname === '/health' && request.method === 'GET') return handleHealth(response);
+    if (url.pathname === '/setup' && (request.method === 'GET' || request.method === 'POST')) return handleSetup(response);
     if (url.pathname.startsWith('/api/')) {
       await routeApi(request, response, url);
       return;
@@ -68,118 +77,254 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`Record Room AI running at http://localhost:${PORT}`);
-  console.log(`Local data root: ${DATA_ROOT}`);
-  console.log('Admin dashboard placeholder token:', ADMIN_TOKEN);
-});
+ensureReady()
+  .then(() => {
+    server.listen(PORT, () => {
+      console.log(`Record Room AI running at http://localhost:${PORT}`);
+      console.log('Admin dashboard placeholder token:', ADMIN_TOKEN);
+    });
+  })
+  .catch((error) => {
+    console.error('[startup] Failed to initialize Record Room AI.');
+    console.error(error);
+    process.exit(1);
+  });
 
 async function ensureReady() {
   if (ensureReady.done) return;
-  await fs.mkdir(DATA_ROOT, { recursive: true });
-  await fs.mkdir(UPLOAD_DIR, { recursive: true });
-  await fs.mkdir(TEXT_DIR, { recursive: true });
-  runSql(`
-    PRAGMA journal_mode = WAL;
-    CREATE TABLE IF NOT EXISTS documents (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      intake_mode TEXT NOT NULL,
-      review_status TEXT NOT NULL DEFAULT 'pending',
-      visibility TEXT NOT NULL DEFAULT 'private',
-      redaction_status TEXT NOT NULL DEFAULT 'not_requested',
-      uploader_name TEXT,
-      uploader_email TEXT,
-      uploader_role TEXT,
-      subject_name TEXT,
-      subject_role TEXT,
-      court TEXT,
-      county TEXT,
-      state TEXT,
-      case_number TEXT,
-      document_type TEXT,
-      source_type TEXT,
-      source_label TEXT DEFAULT 'unknown source',
-      reliability_tags TEXT DEFAULT 'needs admin review',
-      record_category TEXT,
-      description TEXT,
-      tags TEXT,
-      notes TEXT,
-      admin_notes TEXT,
-      original_filename TEXT NOT NULL,
-      stored_filename TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      file_size INTEGER NOT NULL,
-      mime_type TEXT,
-      extracted_text_path TEXT,
-      extracted_text TEXT,
-      extraction_status TEXT NOT NULL DEFAULT 'pending',
-      extraction_message TEXT,
-      malware_scan_status TEXT NOT NULL DEFAULT 'placeholder_pending',
-      public_summary TEXT,
-      ai_summary_json TEXT DEFAULT '{"verifiedOfficialInformation":[],"courtRecordSupportedInformation":[],"userSubmittedAllegations":[],"unresolvedOrConflictingInformation":[],"selfPromotionalSources":[],"marketingOrReviewBasedSources":[]}'
-    );
-    CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(subject_name, court, county, state, case_number, source_type, source_label, tags, extracted_text, content='documents', content_rowid='id');
-    CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
-      INSERT INTO documents_fts(rowid, subject_name, court, county, state, case_number, source_type, source_label, tags, extracted_text)
-      VALUES (new.id, new.subject_name, new.court, new.county, new.state, new.case_number, new.source_type, new.source_label, new.tags, new.extracted_text);
-    END;
-    CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
-      INSERT INTO documents_fts(documents_fts, rowid, subject_name, court, county, state, case_number, source_type, source_label, tags, extracted_text)
-      VALUES('delete', old.id, old.subject_name, old.court, old.county, old.state, old.case_number, old.source_type, old.source_label, old.tags, old.extracted_text);
-      INSERT INTO documents_fts(rowid, subject_name, court, county, state, case_number, source_type, source_label, tags, extracted_text)
-      VALUES (new.id, new.subject_name, new.court, new.county, new.state, new.case_number, new.source_type, new.source_label, new.tags, new.extracted_text);
-    END;
-    CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-      INSERT INTO documents_fts(documents_fts, rowid, subject_name, court, county, state, case_number, source_type, source_label, tags, extracted_text)
-      VALUES('delete', old.id, old.subject_name, old.court, old.county, old.state, old.case_number, old.source_type, old.source_label, old.tags, old.extracted_text);
-    END;
-    CREATE TABLE IF NOT EXISTS profiles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      name TEXT NOT NULL,
-      role TEXT NOT NULL,
-      court_office_firm TEXT,
-      county TEXT,
-      state TEXT,
-      bar_number TEXT,
-      known_cases TEXT,
-      allegations_categories TEXT,
-      official_discipline TEXT,
-      court_record_supported_issues TEXT,
-      user_submitted_complaints TEXT,
-      news_public_source_references TEXT,
-      source_reliability_summary TEXT,
-      admin_notes TEXT,
-      visibility TEXT NOT NULL DEFAULT 'private',
-      source_bound_summary_json TEXT DEFAULT '{"verifiedOfficialInformation":[],"courtRecordSupportedInformation":[],"userSubmittedAllegations":[],"unresolvedOrConflictingInformation":[],"selfPromotionalSources":[],"marketingOrReviewBasedSources":[]}'
-    );
-    CREATE TABLE IF NOT EXISTS profile_documents (
-      profile_id INTEGER NOT NULL,
-      document_id INTEGER NOT NULL,
-      created_at TEXT NOT NULL,
-      PRIMARY KEY(profile_id, document_id),
-      FOREIGN KEY(profile_id) REFERENCES profiles(id),
-      FOREIGN KEY(document_id) REFERENCES documents(id)
-    );
-    CREATE TABLE IF NOT EXISTS claims (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      profile_id INTEGER,
-      document_id INTEGER NOT NULL,
-      claim_text TEXT NOT NULL,
-      summary_bucket TEXT NOT NULL,
-      source_label TEXT NOT NULL,
-      reliability_tags TEXT NOT NULL,
-      visibility TEXT NOT NULL DEFAULT 'private',
-      review_status TEXT NOT NULL DEFAULT 'pending',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY(profile_id) REFERENCES profiles(id),
-      FOREIGN KEY(document_id) REFERENCES documents(id)
-    );
-  `);
+  console.log(`[startup] Project root path: ${ROOT}`);
+  console.log(`[startup] Data root path: ${DATA_ROOT}`);
+  console.log(`[startup] Database file path: ${DB_PATH}`);
+  await initializeDatabase();
   ensureReady.done = true;
+}
+
+async function initializeDatabase() {
+  try {
+    await fs.mkdir(DATA_ROOT, { recursive: true });
+    await fs.mkdir(UPLOAD_DIR, { recursive: true });
+    await fs.mkdir(TEXT_DIR, { recursive: true });
+    if (!fss.existsSync(DB_PATH)) fss.closeSync(fss.openSync(DB_PATH, 'a'));
+
+    if (!db) {
+      db = new Database(DB_PATH);
+      db.pragma('journal_mode = WAL');
+      db.pragma('foreign_keys = ON');
+      console.log('[startup] Database connected successfully.');
+    }
+
+    runSql(SCHEMA_SQL);
+    const tables = getTables();
+    const missingTables = REQUIRED_TABLES.filter((table) => !tables.includes(table));
+    if (missingTables.length) throw new Error(`Schema initialized but required tables are missing: ${missingTables.join(', ')}`);
+    console.log(`[startup] Schema initialized successfully. Tables: ${tables.join(', ')}`);
+    return { tables };
+  } catch (error) {
+    console.error(`[sqlite] Exact SQL error: ${error.message}`);
+    throw error;
+  }
+}
+
+const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  name TEXT NOT NULL,
+  source_type TEXT,
+  source_label TEXT DEFAULT 'unknown source',
+  url TEXT,
+  notes TEXT
+);
+CREATE TABLE IF NOT EXISTS scanner_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  status TEXT NOT NULL DEFAULT 'pending',
+  source_id INTEGER,
+  query TEXT,
+  message TEXT,
+  FOREIGN KEY(source_id) REFERENCES sources(id)
+);
+CREATE TABLE IF NOT EXISTS raw_results (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  scanner_job_id INTEGER,
+  source_id INTEGER,
+  title TEXT,
+  url TEXT,
+  raw_json TEXT,
+  processed_status TEXT NOT NULL DEFAULT 'pending',
+  FOREIGN KEY(scanner_job_id) REFERENCES scanner_jobs(id),
+  FOREIGN KEY(source_id) REFERENCES sources(id)
+);
+CREATE TABLE IF NOT EXISTS documents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  intake_mode TEXT NOT NULL,
+  review_status TEXT NOT NULL DEFAULT 'pending',
+  visibility TEXT NOT NULL DEFAULT 'private',
+  redaction_status TEXT NOT NULL DEFAULT 'not_requested',
+  uploader_name TEXT,
+  uploader_email TEXT,
+  uploader_role TEXT,
+  subject_name TEXT,
+  subject_role TEXT,
+  court TEXT,
+  county TEXT,
+  state TEXT,
+  case_number TEXT,
+  document_type TEXT,
+  source_type TEXT,
+  source_label TEXT DEFAULT 'unknown source',
+  reliability_tags TEXT DEFAULT 'needs admin review',
+  record_category TEXT,
+  description TEXT,
+  tags TEXT,
+  notes TEXT,
+  admin_notes TEXT,
+  original_filename TEXT NOT NULL,
+  stored_filename TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  file_size INTEGER NOT NULL,
+  mime_type TEXT,
+  extracted_text_path TEXT,
+  extracted_text TEXT,
+  extraction_status TEXT NOT NULL DEFAULT 'pending',
+  extraction_message TEXT,
+  malware_scan_status TEXT NOT NULL DEFAULT 'placeholder_pending',
+  public_summary TEXT,
+  source_id INTEGER,
+  raw_result_id INTEGER,
+  ai_summary_json TEXT DEFAULT '{"verifiedOfficialInformation":[],"courtRecordSupportedInformation":[],"userSubmittedAllegations":[],"unresolvedOrConflictingInformation":[],"selfPromotionalSources":[],"marketingOrReviewBasedSources":[]}',
+  FOREIGN KEY(source_id) REFERENCES sources(id),
+  FOREIGN KEY(raw_result_id) REFERENCES raw_results(id)
+);
+CREATE TABLE IF NOT EXISTS extracted_text (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  document_id INTEGER NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  text_path TEXT,
+  text_content TEXT,
+  extraction_status TEXT NOT NULL DEFAULT 'pending',
+  extraction_message TEXT,
+  FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS profiles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  court_office_firm TEXT,
+  county TEXT,
+  state TEXT,
+  bar_number TEXT,
+  known_cases TEXT,
+  allegations_categories TEXT,
+  official_discipline TEXT,
+  court_record_supported_issues TEXT,
+  user_submitted_complaints TEXT,
+  news_public_source_references TEXT,
+  source_reliability_summary TEXT,
+  admin_notes TEXT,
+  visibility TEXT NOT NULL DEFAULT 'private',
+  source_bound_summary_json TEXT DEFAULT '{"verifiedOfficialInformation":[],"courtRecordSupportedInformation":[],"userSubmittedAllegations":[],"unresolvedOrConflictingInformation":[],"selfPromotionalSources":[],"marketingOrReviewBasedSources":[]}'
+);
+CREATE TABLE IF NOT EXISTS profile_aliases (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  profile_id INTEGER NOT NULL,
+  alias TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(profile_id, alias),
+  FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS profile_documents (
+  profile_id INTEGER NOT NULL,
+  document_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(profile_id, document_id),
+  FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+  FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS claims (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  profile_id INTEGER,
+  document_id INTEGER NOT NULL,
+  claim_text TEXT NOT NULL,
+  summary_bucket TEXT NOT NULL,
+  source_label TEXT NOT NULL,
+  reliability_tags TEXT NOT NULL,
+  visibility TEXT NOT NULL DEFAULT 'private',
+  review_status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE SET NULL,
+  FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS claim_sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  claim_id INTEGER NOT NULL,
+  document_id INTEGER,
+  source_id INTEGER,
+  raw_result_id INTEGER,
+  citation TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(claim_id) REFERENCES claims(id) ON DELETE CASCADE,
+  FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE SET NULL,
+  FOREIGN KEY(source_id) REFERENCES sources(id) ON DELETE SET NULL,
+  FOREIGN KEY(raw_result_id) REFERENCES raw_results(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS review_queue (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  item_type TEXT NOT NULL,
+  item_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  priority INTEGER NOT NULL DEFAULT 0,
+  assigned_to TEXT,
+  notes TEXT
+);
+CREATE TABLE IF NOT EXISTS research_leads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  profile_id INTEGER,
+  lead_text TEXT NOT NULL,
+  source_url TEXT,
+  status TEXT NOT NULL DEFAULT 'open',
+  notes TEXT,
+  FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE SET NULL
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(subject_name, court, county, state, case_number, source_type, source_label, tags, extracted_text, content='documents', content_rowid='id');
+CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(item_type, item_id UNINDEXED, title, body, source_label, reliability_tags);
+CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
+  INSERT INTO documents_fts(rowid, subject_name, court, county, state, case_number, source_type, source_label, tags, extracted_text)
+  VALUES (new.id, new.subject_name, new.court, new.county, new.state, new.case_number, new.source_type, new.source_label, new.tags, new.extracted_text);
+END;
+CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
+  INSERT INTO documents_fts(documents_fts, rowid, subject_name, court, county, state, case_number, source_type, source_label, tags, extracted_text)
+  VALUES('delete', old.id, old.subject_name, old.court, old.county, old.state, old.case_number, old.source_type, old.source_label, old.tags, old.extracted_text);
+  INSERT INTO documents_fts(rowid, subject_name, court, county, state, case_number, source_type, source_label, tags, extracted_text)
+  VALUES (new.id, new.subject_name, new.court, new.county, new.state, new.case_number, new.source_type, new.source_label, new.tags, new.extracted_text);
+END;
+CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
+  INSERT INTO documents_fts(documents_fts, rowid, subject_name, court, county, state, case_number, source_type, source_label, tags, extracted_text)
+  VALUES('delete', old.id, old.subject_name, old.court, old.county, old.state, old.case_number, old.source_type, old.source_label, old.tags, old.extracted_text);
+END;
+`;
+
+function handleHealth(response) {
+  sendJson(response, 200, { server: 'running', database: db ? 'connected' : 'disconnected', dataRoot: DATA_ROOT, databasePath: DB_PATH, tables: getTables() });
+}
+
+async function handleSetup(response) {
+  ensureReady.done = false;
+  const result = await initializeDatabase();
+  ensureReady.done = true;
+  sendJson(response, 200, { message: 'Setup completed successfully.', dataRoot: DATA_ROOT, databasePath: DB_PATH, tables: result.tables });
 }
 
 async function routeApi(request, response, url) {
@@ -240,6 +385,7 @@ async function handleUpload(request, response, intakeMode) {
   `)[0];
   const textPath = await storage.saveExtractedText(insert.id, extraction.text);
   const updated = querySql(`UPDATE documents SET extracted_text_path=${q(textPath)} WHERE id=${Number(insert.id)} RETURNING *;`)[0];
+  querySql(`INSERT INTO extracted_text (document_id, text_path, text_content, extraction_status, extraction_message) VALUES (${Number(insert.id)}, ${q(textPath)}, ${q(extraction.text)}, ${q(extraction.status)}, ${q(extraction.message)}) ON CONFLICT(document_id) DO UPDATE SET updated_at=CURRENT_TIMESTAMP, text_path=excluded.text_path, text_content=excluded.text_content, extraction_status=excluded.extraction_status, extraction_message=excluded.extraction_message;`);
   sendJson(response, 201, { message: intakeMode === 'local_admin' ? 'Document saved to your local Record Room database.' : 'Your submission has been received for review. Submission does not guarantee publication.', document: publicSafeDocument(updated, true) });
 }
 
@@ -478,14 +624,40 @@ function requireAdmin(request) {
 }
 
 function runSql(sql) {
-  const tmp = path.join(os.tmpdir(), `record-room-${crypto.randomUUID()}.sql`);
-  fss.writeFileSync(tmp, sql);
-  const result = spawnSync('sqlite3', ['-json', DB_PATH, `.read ${tmp}`], { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 });
-  fss.rmSync(tmp, { force: true });
-  if (result.status !== 0) throw new Error(result.stderr || 'SQLite command failed.');
-  return result.stdout?.trim() ? JSON.parse(result.stdout) : [];
+  if (!db) throw new Error('SQLite database is not connected.');
+  try {
+    db.exec(sql);
+    return [];
+  } catch (error) {
+    console.error(`[sqlite] Exact SQL error: ${error.message}`);
+    console.error(`[sqlite] SQL: ${sql}`);
+    throw new Error(error.message);
+  }
 }
-function querySql(sql) { return runSql(sql); }
+
+function querySql(sql) {
+  if (!db) throw new Error('SQLite database is not connected.');
+  try {
+    const statement = db.prepare(sql);
+    if (statement.reader) return statement.all();
+    const info = statement.run();
+    return [{ changes: info.changes, lastInsertRowid: Number(info.lastInsertRowid) }];
+  } catch (error) {
+    console.error(`[sqlite] Exact SQL error: ${error.message}`);
+    console.error(`[sqlite] SQL: ${sql}`);
+    throw new Error(error.message);
+  }
+}
+
+function getTables() {
+  if (!db) return [];
+  const internalFtsSuffixes = ['_data', '_idx', '_content', '_docsize', '_config'];
+  return db.prepare("SELECT name FROM sqlite_schema WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name;")
+    .all()
+    .map((row) => row.name)
+    .filter((name) => !internalFtsSuffixes.some((suffix) => name.endsWith(suffix)));
+}
+
 function q(value) { if (value === undefined || value === null) return 'NULL'; return `'${String(value).replace(/'/g, "''")}'`; }
 function normalizeChoice(value, choices, fallback) { const found = choices.find((choice) => choice.toLowerCase() === String(value || '').toLowerCase()); return found || fallback; }
 function normalizeTags(value, choices) { const input = String(value || '').split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean); const tags = choices.filter((choice) => input.includes(choice.toLowerCase())); return tags.length ? tags.join(', ') : 'needs admin review'; }
@@ -493,7 +665,7 @@ function publicSafeDocument(row, includeAdminFields = false) { const copy = { ..
 function csvCell(value) { const text = value === null || value === undefined ? '' : String(value); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; }
 
 async function serveStatic(pathname, response) {
-  const safePath = pathname === '/' ? '/index.html' : pathname;
+  const safePath = pathname === '/' || pathname === '/admin' ? '/index.html' : pathname;
   const filePath = path.normalize(path.join(ROOT, safePath));
   if (!filePath.startsWith(ROOT)) return sendJson(response, 403, { error: 'Forbidden.' });
   try {
