@@ -817,19 +817,8 @@ input[type="radio"] {
   align-items: center;
   display: grid;
   gap: 1rem;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
   margin: 0.25rem 0 1rem;
-}
-.missionSideCard {
-  background: linear-gradient(135deg, rgba(20, 33, 61, 0.08), rgba(91, 42, 134, 0.14));
-  border: 1px solid rgba(91, 42, 134, 0.2);
-  border-radius: 18px;
-  padding: 0.75rem;
-}
-.heroThumb {
-  font-size: 2rem;
-  height: 88px;
-  width: 88px;
 }
 .cleanNotice {
   font-weight: 600;
@@ -838,5 +827,4 @@ input[type="radio"] {
 
 @media (max-width: 760px) {
   .publicMission { grid-template-columns: 1fr; }
-  .missionSideCard { justify-self: start; }
 }
