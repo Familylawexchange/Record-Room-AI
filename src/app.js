@@ -40,6 +40,7 @@ function applyLayoutClasses() {
 function renderRoute() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
   applyTitle(path);
+  renderHeader(path);
   if (path === '/admin') renderAdmin();
   else if (path === '/upload') renderUpload();
   else if (path === '/submit' || path === '/record-room-submit') renderSubmit();
@@ -52,6 +53,35 @@ function renderRoute() {
   else if (path === '/health') renderHealth();
   else renderHome();
   wireRoute();
+}
+
+function renderHeader(path) {
+  const header = document.querySelector('.siteHeader');
+  const nav = document.querySelector('.topNav');
+  const brand = document.querySelector('.brand');
+  if (!header || !nav || !brand) return;
+  const internalPaths = new Set(['/admin', '/upload', '/review', '/profiles', '/leads', '/scanner', '/health']);
+  const publicLinks = [
+    { href: '/submit', label: 'Submit Records' },
+    { href: '/#about', label: 'About' },
+    { href: '/search', label: 'Public Search' },
+  ];
+  const internalLinks = [
+    { href: '/admin', label: 'Admin Dashboard' },
+    { href: '/upload', label: 'Local Upload' },
+    { href: '/submit', label: 'Public Submit' },
+    { href: '/review', label: 'Review Queue' },
+    { href: '/documents', label: 'Documents' },
+    { href: '/profiles', label: 'Profiles' },
+    { href: '/leads', label: 'Research Leads' },
+    { href: '/scanner', label: 'Scanner' },
+    { href: '/search', label: 'Public Search' },
+    { href: '/health', label: 'Health' },
+  ];
+  const onInternalPage = internalPaths.has(path);
+  header.classList.toggle('publicHeader', !onInternalPage);
+  brand.innerHTML = `${fleLogoInline()}<span>The Record Room AI</span>`;
+  nav.innerHTML = (onInternalPage ? internalLinks : publicLinks).map((link) => `<a href="${link.href}" ${link.href === path || (link.href === '/search' && (path === '/public-search')) ? 'aria-current="page"' : ''}>${link.label}</a>`).join('');
 }
 
 function renderHome() {
@@ -72,7 +102,7 @@ function renderUpload() {
 }
 
 function renderSubmit() {
-  app.innerHTML = `<section class="card panel uploader"><p class="eyebrow">Public submission portal</p><h2 class="pageTitle">Public Submit</h2><p class="formIntro">Public submissions are pending/private by default. Nothing becomes public automatically.</p><form id="public-submit">${uploaderFields('public')}<label>Document file${fileInput()}</label><p class="noticeText">Please upload only records you are legally allowed to share. Do not upload sealed, restricted, or confidential records unless you have authority to do so.</p><button type="submit">Submit for review</button><p class="status status-message" id="public-status"></p></form></section>`;
+  app.innerHTML = `<section class="card panel uploader"><p class="eyebrow">Public submission portal</p><h2 class="pageTitle">Submit Records</h2><div class="publicMission"><div><p class="formIntro missionText">The Record Room AI collects transcripts, court orders, reports, evidence, and official records to help identify patterns, conduct, rule compliance, and decision-making by the guardians, judges, prosecutors, attorneys, and court officials shaping families’ futures.</p></div><aside class="missionSideCard">${heroRobotImage()}</aside></div><p class="formIntro">Share the basic details and upload the record. Submissions are reviewed before anything is made public.</p><form id="public-submit">${uploaderFields('public')}<label>Document file${fileInput()}</label><p class="noticeText cleanNotice">Please upload only records you are legally allowed to share. Do not upload sealed, restricted, or confidential records unless you have authority to do so.</p><button type="submit">Submit for review</button><p class="status status-message" id="public-status"></p></form></section>`;
 }
 
 function renderReview() {
@@ -109,6 +139,8 @@ function uploaderFields(mode) {
 }
 
 function missionReminderBlock() { return `<div class="missionReminder"><div class="missionVisual"><div class="robotGirlThumb" aria-hidden="true">🤖</div><div class="fleLogoBadge" aria-label="FLE logo">FLE</div></div><p>Upload transcripts, court orders, reports, evidence, and other official records to help us build a centralized hub that identifies patterns, conduct, rule compliance, and decision-making by the guardians, judges, prosecutors, attorneys, and court officials responsible for shaping families’ futures.</p></div>`; }
+function heroRobotImage() { return `<div class="robotGirlThumb heroThumb" aria-hidden="true">🤖</div>`; }
+function fleLogoInline() { return `<span class="fleLogoBadge headerLogo" aria-hidden="true">FLE</span>`; }
 
 
 function hydrateDirectVisitFromQuery() { const params = new URLSearchParams(location.search); const redirectedPath = params.get('p'); if (!redirectedPath) return; const cleanPath = redirectedPath.startsWith('/') ? redirectedPath : `/${redirectedPath}`; params.delete('p'); const query = params.toString(); history.replaceState({}, '', `${cleanPath}${query ? `?${query}` : ''}${location.hash || ''}`); }
