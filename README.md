@@ -1,125 +1,95 @@
-# Record Room AI
+# The Record Room AI
 
-Record Room AI is now a full-stack Node application for two intake workflows:
+The Record Room AI is a full-stack, source-labeled legal accountability database for judges, lawyers, guardians ad litem, prosecutors, custody evaluators, court staff, agencies, and related legal professionals.
 
-1. **Local/private admin mode** for documents you upload from your own computer.
-2. **Public submission portal mode** for user uploads that remain pending, private, and unpublished until an admin approves them.
+The app supports:
 
-## Storage and database
-
-Local development uses real persistent storage instead of browser-only storage:
-
-- Original uploads: `./record-room-data/uploads`
-- Extracted text files: `./record-room-data/extracted-text`
-- SQLite database: `./record-room-data/database.sqlite`
-
-The server code keeps storage and database operations behind small helper layers so a later production build can replace local folders and SQLite with cloud object storage and a managed database.
-
-## Supported upload types
-
-Accepted files:
-
-- PDF
-- DOCX
-- DOC
-- TXT
-- JPG/JPEG
-- PNG
-
-Maximum size: **25 MB per file**.
-
-## Public submission safety
-
-Public users must provide uploader details, subject/person/entity metadata, court/location/case metadata, document type/source information, description, tags/allegation categories, record category, and a document file.
-
-Before submission, public users must check all required warnings:
-
-- They should not upload sealed, confidential, protected, or unlawfully obtained documents.
-- Submission does not guarantee publication.
-- Documents may be reviewed, redacted, rejected, or kept private.
-- They certify a good-faith basis for submitting the material.
-- The Record Room may label submissions as user-submitted, unverified, alleged, court-record-supported, official-record-supported, or rejected.
-
-Public submissions are stored as `pending` and `private` by default. Public search only returns records that are both `approved` and `public`.
-
-## Admin dashboard
-
-The admin dashboard provides a protected placeholder workflow using `X-Admin-Token` / `RECORD_ROOM_ADMIN_TOKEN`. Replace this with production authentication before deployment.
-
-Admin features include:
-
-- View all uploads.
-- Filter by review status, visibility, role, county, state, and keyword.
-- Download original files.
-- View extracted text.
-- Edit metadata.
-- Approve or reject uploads.
-- Mark records public, private, admin-only, or needs redaction.
-- Add source reliability labels and reliability tags.
-- Add public summaries and admin notes.
-- Search uploaded documents, including extracted text.
-- Export records as CSV.
-- Create profile records from uploads.
-
-## Document processing
-
-When a file is uploaded, the server:
-
-1. Validates file extension, MIME type, and size.
-2. Saves the original file to persistent storage.
-3. Creates a SQLite document record.
-4. Extracts text when possible:
-   - TXT: direct server-side text read.
-   - DOCX: local `unzip` parser reads `word/document.xml`.
-   - PDF: best-effort embedded-text extraction placeholder.
-   - DOC: legacy parser placeholder.
-   - JPG/JPEG/PNG: OCR placeholder.
-5. Stores extracted text in the database and `./record-room-data/extracted-text`.
-6. Keeps the file even if extraction is pending or failed.
-
-## Profiles, source labels, and source-bound summaries
-
-Profiles support judges, guardians ad litem, attorneys, prosecutors, evaluators, court staff, and other legal professionals. Profile fields include role, court/office/firm, county, state, bar number, known cases, associated documents, allegations/categories, official discipline, court-record-supported issues, user-submitted complaints, news/public references, source reliability summary, admin notes, and visibility.
-
-Documents and claims are designed to carry source/reliability labels such as court order, appellate opinion, trial court filing, transcript, government record, bar record, judicial commission record, news article, user-submitted document, review, law firm website, social media, and unknown source. Reliability tags include verified official source, court-record supported, user-submitted, unverified allegation, self-promotional source, adversarial source, anonymous source, conflicting sources, and needs admin review.
-
-The database includes an AI-ready source-bound summary structure that separates verified official information, court-record-supported information, user-submitted allegations, unresolved/conflicting information, self-promotional sources, and marketing/review-based sources. Claims must point back to source document records before they should be displayed as facts.
+- **Local/private admin mode** for uploading files from your computer into persistent local storage.
+- **Public submission mode** for outside users to submit documents into a private pending review queue.
+- **Research/scanner mode** for manual/import research leads and connector-safe scanner job placeholders.
+- **Public search** limited to approved, public, non-confidential, non-redaction-needed records.
 
 ## Run locally
 
 ```bash
 npm install
+npm run dev
+```
+
+You can also run:
+
+```bash
 node server.js
 ```
 
-The server starts on <http://localhost:5173> by default. Startup automatically creates `./record-room-data`, `./record-room-data/uploads`, `./record-room-data/extracted-text`, `./record-room-data/database.sqlite`, and the required SQLite schema. You can verify the runtime state at `/health` or safely rerun setup at `/setup`.
+The default local URL is `http://localhost:5173`.
 
-Useful environment variables:
+## Main routes
 
-```bash
-PORT=5173
-RECORD_ROOM_DATA_DIR=./record-room-data
-RECORD_ROOM_ADMIN_TOKEN=local-dev-admin
-OPENAI_API_KEY=sk-your-api-key
-OPENAI_MODEL=gpt-5-mini
-```
+- Admin dashboard: `http://localhost:5173/admin`
+- Local/private upload: `http://localhost:5173/upload`
+- Public submission portal: `http://localhost:5173/submit`
+- Review queue: `http://localhost:5173/review`
+- Documents manager: `http://localhost:5173/documents`
+- Profiles manager: `http://localhost:5173/profiles`
+- Research leads / Trellis manual import: `http://localhost:5173/leads`
+- Scanner job placeholders: `http://localhost:5173/scanner`
+- Public search: `http://localhost:5173/search`
+- Backend health JSON: `http://localhost:5173/health`
 
-## Test
+`/health` returns server status, database status, `dataRoot`, `databasePath`, and the current SQLite table list.
 
-```bash
-npm test
-```
+## Local storage
 
-The test script runs JavaScript syntax checks for the browser app and the Node server.
+The app intentionally stores local data inside the project directory, not at the drive root:
 
-## Deployment notes
+- Data root: `./record-room-data`
+- Uploaded originals: `./record-room-data/uploads`
+- Extracted text files: `./record-room-data/extracted-text`
+- SQLite database: `./record-room-data/database.sqlite`
 
-The app can run on Node-capable hosts such as Render or Railway. For Vercel/Netlify-style deployments, keep the static frontend but connect API routes to a Node/serverless backend with equivalent storage/database adapters.
+Startup safely creates required tables if they are missing and does not destroy existing data.
 
-Before public production use:
+## How uploads and publication work
 
-- Replace the admin token placeholder with real authentication and authorization.
-- Configure production database/storage adapters.
-- Connect a malware scanner.
-- Connect OCR/PDF/DOC extraction workers as needed.
-- Review privacy, moderation, defamation, court-record, sealed-record, and data-retention policies with qualified counsel.
+1. Local uploads on `/upload` save the original file, metadata, extraction status, extracted text, review queue entry, hashes, and search-index text in SQLite.
+2. Public submissions on `/submit` are always `pending` and `private` by default.
+3. Admin review happens on `/review` and `/documents`.
+4. To approve a record for public search, edit the document metadata so that it is approved/public and not marked sealed/confidential or needing redaction.
+5. `/search` only returns records marked approved/public and excludes pending, private, rejected, admin-only, sealed/confidential, and needs-redaction records.
+
+The public no-result message is: “No approved public records are currently available for this search.” The app does not state “No issues found.”
+
+## Research leads and commercial platforms
+
+`/leads` is the manual/import workspace for Trellis Law, Westlaw, Lexis, UniCourt, Docket Alarm, vLex/Fastcase, PACER, CourtListener, official court sites, appellate courts, official discipline sources, public/news sources, and other sources.
+
+Commercial legal research platforms are treated as **leads, not final verification**. Trellis Law, Westlaw, Lexis, UniCourt, and Docket Alarm are manual/import only unless API/license-compatible access is configured. The app must not scrape or bypass paywalls, logins, CAPTCHA, robots.txt, sealed records, protected records, or terms of use.
+
+## Scanner placeholders and adding connectors later
+
+`/scanner` stores connector-based scanner jobs. It includes placeholders for CourtListener/RECAP, state appellate opinions, Georgia re:SearchGA, Florida county clerk portals, California superior court portals, Ohio clerk/common pleas/domestic relations portals, South Carolina Public Index, South Carolina C-Track, Texas re:SearchTX, official bar/judicial discipline sources, Trellis manual/import, and Westlaw/Lexis/UniCourt/Docket Alarm manual/import.
+
+To add a connector later:
+
+1. Confirm the source permits API access or compatible automated access.
+2. Add credentials/config through environment variables, not committed source code.
+3. Write results into `raw_results` or `research_leads`.
+4. Add a `review_queue` item.
+5. Never publish connector results automatically.
+
+## Source-bound AI summaries
+
+The database stores AI-ready summary JSON placeholders. Public AI summaries must be source-bound, must not use unapproved records, must link claims to sources, and must distinguish official findings, appellate findings, court-record-supported filings/orders, filed allegations not adjudicated, disciplinary findings, user-submitted allegations, commercial-platform leads, self-promotional sources, and conflicting information.
+
+The app should not label people with conclusions such as “corrupt,” “bad judge,” or “bad lawyer.” Allegations should use careful language such as “A filed motion alleged…” or “The database contains a user-submitted document alleging…”.
+
+## Deployment later
+
+The current local development server is a Node HTTP server. For deployment:
+
+1. Set `NODE_ENV=production`.
+2. Set a strong `RECORD_ROOM_ADMIN_TOKEN`.
+3. Configure persistent disk storage for `record-room-data` or set `RECORD_ROOM_DATA_DIR` to a durable volume.
+4. Add real authentication before exposing admin routes broadly.
+5. Add malware scanning, rate limiting, redaction tooling, backup policy, HTTPS, and connector credentials as needed.
