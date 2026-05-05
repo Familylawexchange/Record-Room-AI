@@ -62,26 +62,30 @@ function renderHeader(path) {
   if (!header || !nav || !brand) return;
   const internalPaths = new Set(['/admin', '/upload', '/review', '/profiles', '/leads', '/scanner', '/health']);
   const publicLinks = [
+    { href: '/', label: 'The Record Room AI' },
     { href: '/submit', label: 'Submit Records' },
-    { href: '/#about', label: 'About' },
+    { href: '/documents', label: 'Documents' },
     { href: '/search', label: 'Public Search' },
+    { href: '/#about', label: 'About' },
   ];
   const internalLinks = [
     { href: '/admin', label: 'Admin Dashboard' },
     { href: '/upload', label: 'Local Upload' },
-    { href: '/submit', label: 'Public Submit' },
     { href: '/review', label: 'Review Queue' },
-    { href: '/documents', label: 'Documents' },
     { href: '/profiles', label: 'Profiles' },
     { href: '/leads', label: 'Research Leads' },
     { href: '/scanner', label: 'Scanner' },
-    { href: '/search', label: 'Public Search' },
     { href: '/health', label: 'Health' },
   ];
   const onInternalPage = internalPaths.has(path);
   header.classList.toggle('publicHeader', !onInternalPage);
   brand.innerHTML = `${fleLogoInline()}<span>The Record Room AI</span>`;
-  nav.innerHTML = (onInternalPage ? internalLinks : publicLinks).map((link) => `<a href="${link.href}" ${link.href === path || (link.href === '/search' && (path === '/public-search')) ? 'aria-current="page"' : ''}>${link.label}</a>`).join('');
+  nav.innerHTML = (onInternalPage ? internalLinks : publicLinks).map((link) => {
+    const isCurrent = link.href === path
+      || (link.href === '/search' && path === '/public-search')
+      || (link.href === '/' && path === '/');
+    return `<a href="${link.href}" ${isCurrent ? 'aria-current="page"' : ''}>${link.label}</a>`;
+  }).join('');
 }
 
 function renderHome() {
