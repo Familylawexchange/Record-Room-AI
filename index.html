@@ -8,12 +8,13 @@
   </head>
   <body>
     <header class="siteHeader">
-      <a class="brand" href="#top">The Record Room AI</a>
+      <a class="brand" href="/">The Record Room AI</a>
       <nav class="topNav" aria-label="Primary navigation">
-        <a href="#local-intake">Local intake</a>
-        <a href="#public-submit">Public submission</a>
-        <a href="#public-search">Public search</a>
-        <a href="#admin-dashboard">Admin dashboard</a>
+        <a href="/upload">Local intake</a>
+        <a href="/submit">Public submission</a>
+        <a href="/search">Public search</a>
+        <a href="/admin">Admin dashboard</a>
+        <a href="/routes">Routes</a>
       </nav>
     </header>
 
@@ -139,8 +140,9 @@
       <section class="panel" id="admin-dashboard">
         <p class="eyebrow">Admin-only dashboard</p>
         <h2>Review queue and records</h2>
-        <p class="formIntro">Admin protection is currently a placeholder using an <code>X-Admin-Token</code>. Set <code>RECORD_ROOM_ADMIN_TOKEN</code> before any public deployment and replace this with real authentication.</p>
+        <p class="formIntro">Admin API protection uses an admin token in production. Local development opens in the browser without custom headers; the default local token is printed in the server console and can also be supplied with <code>/admin?token=local-dev-admin</code>.</p>
         <div class="adminLogin">
+          <div class="localLoginNotice"><strong>Local-dev login:</strong> use <code>local-dev-admin</code> unless you set <code>RECORD_ROOM_ADMIN_TOKEN</code>. The frontend sends this token automatically for protected admin API calls.</div>
           <label>Admin token<input id="admin-token" value="local-dev-admin" /></label>
           <button id="load-admin" type="button">Load uploads</button>
           <a class="buttonLink" id="export-csv" href="/api/admin/uploads/export.csv">Export CSV</a>

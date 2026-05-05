@@ -1,6 +1,6 @@
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const allowedExtensions = ['pdf', 'docx', 'doc', 'txt', 'jpg', 'jpeg', 'png'];
-let config = { sourceLabels: [], reliabilityTags: [], professionalRoles: [] };
+let config = { sourceLabels: [], reliabilityTags: [], professionalRoles: [], localDevAdminToken: null, isProduction: false };
 
 const selectors = {
   localForm: document.querySelector('#local-intake'),
@@ -20,14 +20,18 @@ bootstrap();
 
 async function bootstrap() {
   config = await api('/api/config');
+  applyRouteMode();
+  hydrateAdminToken();
   populateSelects();
   selectors.localForm.addEventListener('submit', (event) => submitUpload(event, '/api/uploads/local', selectors.localStatus));
   selectors.publicForm.addEventListener('submit', (event) => submitUpload(event, '/api/submissions/public', selectors.publicStatus));
   selectors.publicSearchForm.addEventListener('submit', handlePublicSearch);
   selectors.adminFilters.addEventListener('submit', (event) => { event.preventDefault(); loadAdminUploads(); });
+  selectors.adminToken.addEventListener('input', () => localStorage.setItem('recordRoomAdminToken', adminToken()));
   selectors.loadAdmin.addEventListener('click', loadAdminUploads);
   selectors.exportCsv.addEventListener('click', downloadCsv);
   await handlePublicSearch(new Event('submit'));
+  if (location.pathname.startsWith('/admin')) await loadAdminUploads(false);
 }
 
 function populateSelects() {
@@ -211,14 +215,35 @@ function select(field, label, value, options) {
 }
 
 async function api(url, options = {}) {
-  const response = await fetch(url, options);
+  const headers = new Headers(options.headers || {});
+  if (url.startsWith('/api/admin/') && !url.startsWith('/api/admin/login') && adminToken()) headers.set('X-Admin-Token', adminToken());
+  const response = await fetch(url, { ...options, headers });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
   return payload;
 }
 
-function adminToken() { return selectors.adminToken.value.trim(); }
-function adminHeaders() { return { 'X-Admin-Token': adminToken() }; }
+function hydrateAdminToken() {
+  const queryToken = new URLSearchParams(location.search).get('token');
+  const savedToken = localStorage.getItem('recordRoomAdminToken');
+  const token = queryToken || savedToken || config.localDevAdminToken || '';
+  if (selectors.adminToken) selectors.adminToken.value = token;
+  if (token) localStorage.setItem('recordRoomAdminToken', token);
+  if (!config.isProduction && config.localDevAdminToken) console.info(`Record Room local-dev admin token: ${config.localDevAdminToken}`);
+}
+
+function applyRouteMode() {
+  const path = location.pathname;
+  document.body.classList.toggle('route-admin', path.startsWith('/admin'));
+  document.body.classList.toggle('route-submit', ['/submit', '/record-room-submit'].includes(path));
+  document.body.classList.toggle('route-upload', path === '/upload');
+  document.body.classList.toggle('route-search', ['/search', '/public-search'].includes(path));
+  document.body.classList.toggle('route-profiles', path === '/profiles');
+  if (path.startsWith('/admin')) document.title = 'Admin dashboard · Record Room AI';
+}
+
+function adminToken() { return selectors.adminToken?.value.trim() || config.localDevAdminToken || ''; }
+function adminHeaders() { return adminToken() ? { 'X-Admin-Token': adminToken() } : {}; }
 function setStatus(element, message, type) { element.className = `status ${type}`; element.textContent = message; }
 function clearStatus(element) { element.className = 'status'; element.textContent = ''; }
 function pill(text) { return `<span class="pill">${escapeHtml(text || 'unset')}</span>`; }

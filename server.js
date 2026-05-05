@@ -14,7 +14,9 @@ const DATA_ROOT = path.resolve(process.env.RECORD_ROOM_DATA_DIR || path.join(ROO
 const UPLOAD_DIR = process.env.RECORD_ROOM_UPLOAD_DIR || path.join(DATA_ROOT, 'uploads');
 const TEXT_DIR = process.env.RECORD_ROOM_TEXT_DIR || path.join(DATA_ROOT, 'extracted-text');
 const DB_PATH = process.env.RECORD_ROOM_DB_PATH || path.join(DATA_ROOT, 'database.sqlite');
-const ADMIN_TOKEN = process.env.RECORD_ROOM_ADMIN_TOKEN || 'local-dev-admin';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const DEFAULT_LOCAL_ADMIN_TOKEN = 'local-dev-admin';
+const ADMIN_TOKEN = process.env.RECORD_ROOM_ADMIN_TOKEN || DEFAULT_LOCAL_ADMIN_TOKEN;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_BODY_BYTES = MAX_FILE_BYTES + 1024 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -44,6 +46,45 @@ const reliabilityTags = [
 ];
 const professionalRoles = ['judge', 'guardian ad litem', 'attorney', 'prosecutor', 'evaluator', 'court staff', 'other legal professional', 'other'];
 
+const FRONTEND_ROUTES = [
+  { path: '/', description: 'Public home and overview', adminAuth: false },
+  { path: '/submit', description: 'Public submission page', adminAuth: false },
+  { path: '/upload', description: 'Local upload/intake page', adminAuth: false },
+  { path: '/search', description: 'Public search page', adminAuth: false },
+  { path: '/public-search', description: 'Public search page alias', adminAuth: false },
+  { path: '/profiles', description: 'Public profiles page', adminAuth: false },
+  { path: '/record-room-submit', description: 'Public submission page alias', adminAuth: false },
+  { path: '/admin', description: 'Admin dashboard app shell', adminAuth: IS_PRODUCTION },
+  { path: '/admin/scanner', description: 'Admin scanner workspace', adminAuth: IS_PRODUCTION },
+  { path: '/admin/review', description: 'Admin review queue', adminAuth: IS_PRODUCTION },
+  { path: '/admin/documents', description: 'Admin documents workspace', adminAuth: IS_PRODUCTION },
+  { path: '/admin/profiles', description: 'Admin profiles workspace', adminAuth: IS_PRODUCTION },
+  { path: '/admin/research-leads', description: 'Admin research leads workspace', adminAuth: IS_PRODUCTION },
+  { path: '/admin/raw-results', description: 'Admin raw results workspace', adminAuth: IS_PRODUCTION },
+  { path: '/admin/settings', description: 'Admin settings workspace', adminAuth: IS_PRODUCTION },
+  { path: '/routes', description: 'Local development route inventory', adminAuth: false, localOnly: true },
+];
+
+const API_ROUTES = [
+  { method: 'GET', path: '/health', description: 'Public server/database health check', adminAuth: false },
+  { method: 'GET', path: '/api/health', description: 'Public API health check', adminAuth: false },
+  { method: 'GET', path: '/api/config', description: 'Public frontend configuration', adminAuth: false },
+  { method: 'POST', path: '/api/uploads/local', description: 'Local/admin upload intake', adminAuth: false },
+  { method: 'POST', path: '/api/submissions/public', description: 'Public submission upload intake', adminAuth: false },
+  { method: 'GET', path: '/api/public/search', description: 'Approved public record search', adminAuth: false },
+  { method: 'POST', path: '/api/analyze', description: 'OpenAI source-bound analysis helper', adminAuth: false },
+  { method: 'POST', path: '/api/admin/login', description: 'Admin token login helper', adminAuth: IS_PRODUCTION },
+  { method: 'GET', path: '/api/admin/uploads', description: 'Admin upload review queue', adminAuth: IS_PRODUCTION },
+  { method: 'GET', path: '/api/admin/uploads/export.csv', description: 'Admin CSV export', adminAuth: IS_PRODUCTION },
+  { method: 'GET', path: '/api/admin/profiles', description: 'Admin profile list', adminAuth: IS_PRODUCTION },
+  { method: 'POST', path: '/api/admin/profiles', description: 'Admin profile creation', adminAuth: IS_PRODUCTION },
+  { method: 'GET', path: '/api/admin/uploads/:id/download', description: 'Admin original-file download', adminAuth: IS_PRODUCTION },
+  { method: 'GET', path: '/api/admin/uploads/:id/text', description: 'Admin extracted text', adminAuth: IS_PRODUCTION },
+  { method: 'PATCH', path: '/api/admin/uploads/:id', description: 'Admin upload metadata/status update', adminAuth: IS_PRODUCTION },
+  { method: 'POST', path: '/api/admin/uploads/:id/create-profile', description: 'Admin profile creation from upload', adminAuth: IS_PRODUCTION },
+  { method: 'POST', path: '/api/admin/uploads/:id/assign-profile/:profileId', description: 'Admin upload/profile assignment', adminAuth: IS_PRODUCTION },
+];
+
 const storage = {
   async saveOriginal(upload) {
     await fs.mkdir(UPLOAD_DIR, { recursive: true });
@@ -65,6 +106,7 @@ const server = http.createServer(async (request, response) => {
     await ensureReady();
     const url = new URL(request.url, `http://${request.headers.host}`);
     if (url.pathname === '/health' && request.method === 'GET') return handleHealth(response);
+    if (url.pathname === '/routes' && request.method === 'GET') return handleRoutesPage(response);
     if (url.pathname === '/setup' && (request.method === 'GET' || request.method === 'POST')) return handleSetup(response);
     if (url.pathname.startsWith('/api/')) {
       await routeApi(request, response, url);
@@ -81,7 +123,12 @@ ensureReady()
   .then(() => {
     server.listen(PORT, () => {
       console.log(`Record Room AI running at http://localhost:${PORT}`);
-      console.log('Admin dashboard placeholder token:', ADMIN_TOKEN);
+      if (IS_PRODUCTION) {
+        console.log('Admin API protection enabled for production. Set RECORD_ROOM_ADMIN_TOKEN to a strong value.');
+      } else {
+        console.log(`Local development admin token: ${ADMIN_TOKEN}`);
+        console.log(`Open the local admin dashboard without headers: http://localhost:${PORT}/admin?token=${encodeURIComponent(ADMIN_TOKEN)}`);
+      }
     });
   })
   .catch((error) => {
@@ -320,6 +367,47 @@ function handleHealth(response) {
   sendJson(response, 200, { server: 'running', database: db ? 'connected' : 'disconnected', dataRoot: DATA_ROOT, databasePath: DB_PATH, tables: getTables() });
 }
 
+function handleRoutesPage(response) {
+  if (IS_PRODUCTION) return serveStatic('/index.html', response);
+  const routeRows = (routes, includeMethod = false) => routes.map((route) => `
+    <tr>
+      ${includeMethod ? `<td><code>${escapeHtml(route.method)}</code></td>` : ''}
+      <td><code>${escapeHtml(route.path)}</code></td>
+      <td>${escapeHtml(route.description)}</td>
+      <td><span class="pill ${route.adminAuth ? 'warn' : 'ok'}">${route.adminAuth ? 'Admin token required in production' : 'Public / no token in local dev'}</span></td>
+      <td>${route.localOnly ? 'Local development only' : 'Available'}</td>
+    </tr>`).join('');
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Record Room AI routes</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <main class="routesPage">
+    <section class="panel">
+      <p class="eyebrow">Local development</p>
+      <h1 class="pageTitle">Record Room AI routes</h1>
+      <p>This page is visible only when <code>NODE_ENV</code> is not <code>production</code>. Local admin API requests may use the default token <code>${escapeHtml(ADMIN_TOKEN)}</code>, but normal browser page visits do not require custom headers.</p>
+      <p><a class="buttonLink" href="/admin?token=${encodeURIComponent(ADMIN_TOKEN)}">Open admin dashboard</a> <a class="buttonLink" href="/api/health">View API health JSON</a></p>
+    </section>
+    <section class="panel">
+      <h2>Frontend routes</h2>
+      <div class="tableWrap"><table><thead><tr><th>Route</th><th>Description</th><th>Admin auth</th><th>Status</th></tr></thead><tbody>${routeRows(FRONTEND_ROUTES)}</tbody></table></div>
+    </section>
+    <section class="panel">
+      <h2>API routes</h2>
+      <div class="tableWrap"><table><thead><tr><th>Method</th><th>Route</th><th>Description</th><th>Admin auth</th><th>Status</th></tr></thead><tbody>${routeRows(API_ROUTES, true)}</tbody></table></div>
+    </section>
+  </main>
+</body>
+</html>`;
+  response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  response.end(html);
+}
+
 async function handleSetup(response) {
   ensureReady.done = false;
   const result = await initializeDatabase();
@@ -329,13 +417,16 @@ async function handleSetup(response) {
 
 async function routeApi(request, response, url) {
   if (!checkRateLimit(request)) return sendJson(response, 429, { error: 'Rate limit placeholder: please wait before sending more requests.' });
-  if (url.pathname === '/api/config') return sendJson(response, 200, { mode: process.env.RECORD_ROOM_MODE || 'local', maxFileBytes: MAX_FILE_BYTES, allowedExtensions: [...allowedExtensions], sourceLabels, reliabilityTags, professionalRoles });
+  if (url.pathname === '/api/health' && request.method === 'GET') return handleHealth(response);
+  if (url.pathname === '/api/config') return sendJson(response, 200, { mode: process.env.RECORD_ROOM_MODE || 'local', nodeEnv: process.env.NODE_ENV || 'development', isProduction: IS_PRODUCTION, localDevAdminToken: IS_PRODUCTION ? null : ADMIN_TOKEN, maxFileBytes: MAX_FILE_BYTES, allowedExtensions: [...allowedExtensions], sourceLabels, reliabilityTags, professionalRoles });
   if (url.pathname === '/api/uploads/local' && request.method === 'POST') return handleUpload(request, response, 'local_admin');
   if (url.pathname === '/api/submissions/public' && request.method === 'POST') return handleUpload(request, response, 'public_submission');
   if (url.pathname === '/api/public/search' && request.method === 'GET') return handlePublicSearch(response, url);
   if (url.pathname === '/api/analyze' && request.method === 'POST') return handleAnalyze(request, response);
 
-  if (url.pathname === '/api/admin/login' && request.method === 'POST') return sendJson(response, 200, { token: ADMIN_TOKEN, message: 'Admin login placeholder accepted for local development. Replace before production.' });
+  if (url.pathname === '/api/admin/login' && request.method === 'POST') return handleAdminLogin(request, response);
+
+  if (!url.pathname.startsWith('/api/admin/')) return sendJson(response, 404, { error: 'Not found.' });
   requireAdmin(request);
   if (url.pathname === '/api/admin/uploads' && request.method === 'GET') return handleAdminUploads(response, url);
   if (url.pathname === '/api/admin/uploads/export.csv' && request.method === 'GET') return handleCsvExport(response);
@@ -617,10 +708,26 @@ function checkRateLimit(request) {
   return bucket.count <= RATE_LIMIT_MAX;
 }
 
+async function handleAdminLogin(request, response) {
+  const body = request.method === 'POST' ? await readJsonBody(request).catch(() => ({})) : {};
+  const requestUrl = new URL(request.url, `http://${request.headers.host}`);
+  const token = body.token || request.headers['x-admin-token'] || requestUrl.searchParams.get('token');
+  if (!IS_PRODUCTION || token === ADMIN_TOKEN) {
+    return sendJson(response, 200, {
+      token: ADMIN_TOKEN,
+      message: IS_PRODUCTION
+        ? 'Admin token accepted.'
+        : 'Local development admin login accepted. Replace with real authentication before production.',
+    });
+  }
+  sendJson(response, 401, { error: 'Admin token is required for this API route.' });
+}
+
 function requireAdmin(request) {
+  if (!IS_PRODUCTION) return;
   const requestUrl = new URL(request.url, `http://${request.headers.host}`);
   const token = request.headers['x-admin-token'] || requestUrl.searchParams.get('token');
-  if (token !== ADMIN_TOKEN) throw Object.assign(new Error('Admin dashboard placeholder requires X-Admin-Token. Set RECORD_ROOM_ADMIN_TOKEN before production.'), { status: 401 });
+  if (token !== ADMIN_TOKEN) throw Object.assign(new Error('Admin token is required for this API route.'), { status: 401 });
 }
 
 function runSql(sql) {
