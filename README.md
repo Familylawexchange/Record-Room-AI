@@ -1,242 +1,124 @@
 # Record Room AI
 
-A secure, local-first AI-assisted legal document intake and review web app for organizing uploaded court transcripts, court orders, motions, exhibits, and official records by case/project.
+Record Room AI is now a full-stack Node application for two intake workflows:
 
-## Current phase: no-account document upload portal with OpenAI pattern analysis
+1. **Local/private admin mode** for documents you upload from your own computer.
+2. **Public submission portal mode** for user uploads that remain pending, private, and unpublished until an admin approves them.
 
-Record Room AI now includes a simple intake portal that does **not** require accounts or authentication yet.
+## Storage and database
 
-- Collects submitter name, email, case/project name, document type, optional notes, and one or more files.
-- Accepts PDF, DOCX, DOC, TXT, JPG/JPEG, and PNG files up to 25 MB per file.
-- Generates a unique case ID for every submission, such as `RR-20260504-AB12CD34`.
-- Saves upload metadata, extracted text, extraction status, source references, and file blobs in the browser's IndexedDB as a **local-only private-storage simulation**.
-- Shows immediate selected file names, upload progress/status (`waiting for files`, `files selected`, `uploading`, `uploaded`, `extraction failed`, `ready for review`), validation errors, storage errors, and extraction errors.
-- Extracts TXT, DOCX, and best-effort embedded PDF text locally in the browser; accepted legacy DOC files are stored locally with a parser placeholder until a private backend/conversion worker is connected.
-- Preserves document names, page numbers/source locators when available, extraction previews, and processing status (`uploaded`, `processing`, `processed`, `failed`).
-- Provides an admin preview list grouped by case/project without adding full user authentication.
-- Keeps the existing citation-backed local document analysis shell.
-- Adds an OpenAI-powered pattern-analysis layer through a local Node API proxy that reads `OPENAI_API_KEY` from the environment.
-- Adds a unified Actor Tracking & Conduct Analysis layer for judges, guardians ad litem, attorneys, prosecutors, clerks, DFCS/CPS workers, court staff, agency officials, and other court officials.
-- Extracts actor profile fields from uploaded materials where available, including names, roles, offices/firms/agencies, bar or license numbers, signature/contact details from public filings, court/county/state, case numbers, represented party/served role, first/last appearance dates, and source documents.
-- Tracks judge, GAL, attorney, prosecutor, clerk/staff/agency official fields; course-of-conduct indicators; actor interaction/alignment indicators; and motion/filing/order outcomes only when supported by cited uploaded text.
-- Lets the user/admin ask custom questions about uploaded case documents and run preset analyses for timeline, unified actor profiles, judge conduct, GAL/guardian ad litem conduct, attorney conduct, prosecutor conduct, motion outcomes, actor interactions, due process concerns, notice/service issues, ex parte indicators, and contradictions between orders/transcripts.
-- Adds UI filters for actor name/type, role served, represented party, prosecutor office, court, county, state, case number, document type, date range, issue type, and confidence level.
-- Leaves explicit placeholders for legacy DOC parsing and scanned PDF/image OCR.
+Local development uses real persistent storage instead of browser-only storage:
 
-> Local-only note: uploaded file blobs remain in this browser profile/device IndexedDB. When OpenAI analysis is requested, the browser sends extracted page text, document names, page numbers/source locators, the selected preset/custom question, and case metadata to the local Node proxy. The original file blobs are not sent by the browser to OpenAI.
+- Original uploads: `/record-room-data/uploads`
+- Extracted text files: `/record-room-data/extracted-text`
+- SQLite database: `/record-room-data/database.sqlite`
 
-## Core safeguards
+The server code keeps storage and database operations behind small helper layers so a later production build can replace local folders and SQLite with cloud object storage and a managed database.
 
-- **Uploaded documents only:** local reports and OpenAI requests are generated exclusively from text extracted from files selected by the user, or from placeholder text when extraction is not implemented yet.
-- **Citation-backed output:** every timeline event, repeated procedural pattern, potential course-of-conduct finding, and AI finding is required to include a quoted source passage with document name and page reference when source text is available.
-- **Fact-pattern discipline:** the app labels actor-based results as fact patterns for attorney review and instructs OpenAI to distinguish documented facts, reasonable inferences, possible legal issues, and unsupported allegations.
-- **Identity verification:** the actor layer does not merge people by last name alone. It uses full name, initials, title, office, court, county, state, signature block, bar/license number, email, case number, and document context when available. Uncertain identities stay separate and are labeled “Possible match — needs human review.”
-- **Pattern threshold:** Record Room AI does not call something a “pattern” unless there are at least two cited examples, unless a user specifically requests single-incident analysis.
-- **No unsupported conclusions:** OpenAI instructions prohibit conclusions about intent, bias, misconduct, corruption, collusion, conspiracy, fraud, ex parte contact, due process violations, service defects, ethics violations, or liability unless quoted uploaded text directly establishes the limited factual premise.
-- **Server-side API key:** the OpenAI API key is read only from `OPENAI_API_KEY` on the local Node server and is never hard-coded into the browser code.
+## Supported upload types
 
-## Unified Actor Tracking & Conduct Analysis
+Accepted files:
 
-Record Room AI performs document-based actor tracking, course-of-conduct review, interaction/alignment review, and pattern analysis using uploaded materials only. The actor layer is designed for legal-document organization and human legal review; it does **not** decide that anyone acted improperly, violated a rule, or had a particular motive. All outputs require human legal review before use in court filings, complaints, investigations, or legal strategy.
+- PDF
+- DOCX
+- DOC
+- TXT
+- JPG/JPEG
+- PNG
 
-The local report and OpenAI prompt support these report templates:
+Maximum size: **25 MB per file**.
 
-- Unified Actor Profile Report
-- Judicial Pattern Report
-- GAL Conduct Report
-- Attorney Conduct & Activity Report
-- Prosecutor Conduct & Activity Report
-- Court Staff / Agency Conduct Report
-- Course of Conduct Report
-- Actor Interaction / Alignment Report
-- Motion Outcome Chart
-- Filing Frequency Report
-- Hearing Participation Report
-- Due Process Timeline
-- Notice and Service Defect Report
-- Ex Parte Indicator Report
-- Contradiction Chart
-- Missing Evidence Checklist
-- Human Review Questions Report
+## Public submission safety
 
-The analysis layer uses neutral labels such as “alignment observed,” “recurring sequence observed,” “documented communication exists,” and “possible issue requiring human review.” If a motion outcome, identity match, date, quote, page number, notice/service fact, or prevailing party is unclear, the app labels it as not determinable from available documents rather than filling gaps.
+Public users must provide uploader details, subject/person/entity metadata, court/location/case metadata, document type/source information, description, tags/allegation categories, record category, and a document file.
 
-## Supported uploads
+Before submission, public users must check all required warnings:
 
-The upload control is both clickable and drag/drop capable. Use **Choose Documents** or drag files onto the upload card. The hidden file input accepts multiple files and is wired to the visible upload area.
+- They should not upload sealed, confidential, protected, or unlawfully obtained documents.
+- Submission does not guarantee publication.
+- Documents may be reviewed, redacted, rejected, or kept private.
+- They certify a good-faith basis for submitting the material.
+- The Record Room may label submissions as user-submitted, unverified, alleged, court-record-supported, official-record-supported, or rejected.
 
-Accepted file types:
+Public submissions are stored as `pending` and `private` by default. Public search only returns records that are both `approved` and `public`.
 
-- PDF (`.pdf`)
-- DOCX (`.docx`)
-- DOC (`.doc`)
-- TXT (`.txt`)
-- JPG/JPEG (`.jpg`, `.jpeg`)
-- PNG (`.png`)
+## Admin dashboard
 
-Upload validation:
+The admin dashboard provides a protected placeholder workflow using `X-Admin-Token` / `RECORD_ROOM_ADMIN_TOKEN`. Replace this with production authentication before deployment.
 
-- Maximum size: **25 MB per file**.
-- Unsupported file extensions show a clear validation message before submission.
-- Oversized files show a clear validation message before submission.
-- **Submit Documents** stays disabled until required submitter/case fields are complete and at least one selected file is valid with no validation errors.
-- Selected file names, sizes, and per-file readiness/errors display immediately after choosing or dropping files.
-- Browser console logs are emitted for local testing when files are selected, dropped, submitted, uploaded, or fail.
+Admin features include:
 
-Exactly how uploads work:
+- View all uploads.
+- Filter by review status, visibility, role, county, state, and keyword.
+- Download original files.
+- View extracted text.
+- Edit metadata.
+- Approve or reject uploads.
+- Mark records public, private, admin-only, or needs redaction.
+- Add source reliability labels and reliability tags.
+- Add public summaries and admin notes.
+- Search uploaded documents, including extracted text.
+- Export records as CSV.
+- Create profile records from uploads.
 
-1. The browser receives the files from the hidden multi-file input connected to the visible upload area.
-2. Client-side validation checks each file extension and size before upload starts.
-3. On submit, Record Room AI creates a unique case ID, reads each selected file with `FileReader`, and stores each original file blob in the browser's IndexedDB local-private-storage simulation.
-4. The app extracts text locally where supported, creates page/source metadata, builds previews, and saves submission metadata.
-5. The uploaded documents are immediately added to the admin preview/document list grouped by case/project and become available in the analysis shell.
-6. OpenAI analysis, when requested, sends extracted text/page metadata only to the local Node proxy; original file blobs remain in IndexedDB.
+## Document processing
 
-Extraction behavior in this static local-first phase:
+When a file is uploaded, the server:
 
-- TXT files are read directly in the browser.
-- DOCX files are parsed locally by reading `word/document.xml` from the uploaded DOCX ZIP package. Current Microsoft Edge and Google Chrome builds include the browser `DecompressionStream` API needed for compressed DOCX entries; if another browser lacks it, the app shows a clear local extraction error.
-- DOC files are accepted and stored privately, but legacy binary Word text extraction is a parser placeholder until a private backend parser or local conversion worker is connected.
-- PDFs use a best-effort local parser for embedded text operators and Flate-compressed streams. This works for many text PDFs but is not a replacement for PDF.js or a backend parser.
-- Scanned PDFs and JPG/JPEG/PNG images are kept private and receive a clear OCR placeholder. Add a local Tesseract.js worker or private backend OCR job at the marked placeholder before AI analysis.
-- Every document stores extracted text, a preview, extraction status/message/error, document name, page number when available, and source locator metadata in IndexedDB.
+1. Validates file extension, MIME type, and size.
+2. Saves the original file to persistent storage.
+3. Creates a SQLite document record.
+4. Extracts text when possible:
+   - TXT: direct server-side text read.
+   - DOCX: local `unzip` parser reads `word/document.xml`.
+   - PDF: best-effort embedded-text extraction placeholder.
+   - DOC: legacy parser placeholder.
+   - JPG/JPEG/PNG: OCR placeholder.
+5. Stores extracted text in the database and `/record-room-data/extracted-text`.
+6. Keeps the file even if extraction is pending or failed.
 
-## Exact Windows run instructions
+## Profiles, source labels, and source-bound summaries
 
-These steps work in Windows PowerShell.
+Profiles support judges, guardians ad litem, attorneys, prosecutors, evaluators, court staff, and other legal professionals. Profile fields include role, court/office/firm, county, state, bar number, known cases, associated documents, allegations/categories, official discipline, court-record-supported issues, user-submitted complaints, news/public references, source reliability summary, admin notes, and visibility.
 
-1. Install Node.js LTS from <https://nodejs.org/>.
-2. Open **PowerShell**.
-3. Go to the project folder. If the repo is in Downloads, run:
+Documents and claims are designed to carry source/reliability labels such as court order, appellate opinion, trial court filing, transcript, government record, bar record, judicial commission record, news article, user-submitted document, review, law firm website, social media, and unknown source. Reliability tags include verified official source, court-record supported, user-submitted, unverified allegation, self-promotional source, adversarial source, anonymous source, conflicting sources, and needs admin review.
 
-   ```powershell
-   cd $env:USERPROFILE\Downloads\Record-Room-AI
-   ```
+The database includes an AI-ready source-bound summary structure that separates verified official information, court-record-supported information, user-submitted allegations, unresolved/conflicting information, self-promotional sources, and marketing/review-based sources. Claims must point back to source document records before they should be displayed as facts.
 
-   If you cloned it somewhere else, replace the path after `cd` with your actual folder path.
-
-4. Verify Node and npm are available:
-
-   ```powershell
-   node --version
-   npm --version
-   ```
-
-5. Install dependencies. This project currently uses no external npm packages; extraction relies on built-in browser APIs and the OpenAI proxy uses Node built-ins. This command prepares the local npm project:
-
-   ```powershell
-   npm install
-   ```
-
-6. Set your OpenAI API key for the current PowerShell window. Replace `sk-your-api-key-here` with the key from your OpenAI account. Do **not** paste this key into source files.
-
-   ```powershell
-   $env:OPENAI_API_KEY="sk-your-api-key-here"
-   ```
-
-   If `.env` is not loading locally, Windows users can also set the variable for the current Command Prompt session with:
-
-   ```cmd
-   set OPENAI_API_KEY=your_key_here
-   ```
-
-   Optional: choose a different OpenAI model for the analysis endpoint. If omitted, the server uses `gpt-5-mini`.
-
-   ```powershell
-   $env:OPENAI_MODEL="gpt-5-mini"
-   ```
-
-7. Start the local web server from the same PowerShell window so it can read `OPENAI_API_KEY`:
-
-   ```powershell
-   npm run dev
-   ```
-
-8. Open the app in your browser:
-
-   ```text
-   http://localhost:5173
-   ```
-
-9. Test uploads locally:
-
-   - Fill in name, email, case/project name, and document type.
-   - Click **Choose Documents** and select one or more accepted files, or drag files onto the upload area.
-   - Confirm file names appear immediately below the upload area.
-   - Try an unsupported file type to confirm the validation error appears and **Submit Documents** remains disabled.
-   - Try a file larger than 25 MB to confirm the file-size validation appears.
-   - Open browser DevTools with `F12`, choose the **Console** tab, and confirm selection/upload events are logged.
-   - Submit valid files and confirm they appear in the admin preview/document list grouped by case/project.
-
-10. Upload documents, select a case, and use the OpenAI pattern-analysis buttons or custom question box. If the app says the key is missing, stop the server, set `$env:OPENAI_API_KEY` (or `set OPENAI_API_KEY=your_key_here` in Command Prompt), and run `npm run dev` again.
-
-11. Keep the PowerShell window open while using the app. To stop the server, click the PowerShell window and press:
-
-   ```text
-   Ctrl+C
-   ```
-
-
-## OpenAI pattern-analysis behavior
-
-The OpenAI analysis panel includes these presets:
-
-1. Timeline of events
-2. Pattern of conduct by judge
-3. Pattern of conduct by GAL/guardian ad litem
-4. Pattern of conduct by attorney
-5. Due process concerns
-6. Notice/service issues
-7. Ex parte communication indicators
-8. Contradictions between orders/transcripts
-9. Unified Actor Profile Report
-10. Prosecutor Conduct & Activity Report
-11. Motion Outcome Chart
-12. Actor Interaction / Alignment Report
-
-For each request, the browser sends only extracted page text and source metadata to `/api/analyze`. The local Node server then calls the OpenAI Responses API using `OPENAI_API_KEY`. The prompt requires the model to:
-
-- Use extracted uploaded-document text as the only source material.
-- Cite document name, page number when available, and quoted source text for every finding.
-- Distinguish facts from possible legal issues for human review.
-- Avoid unsupported conclusions and explicitly state what is not established.
-- Verify actor identity using more than last name when possible and label uncertain identities for human review.
-- Track motion outcomes only when determinable; otherwise state “Outcome not determinable from available documents.”
-- Require at least two cited examples before labeling something a pattern.
-- Produce relevant actor, conduct, motion, issue, citation, missing-evidence, and human-review-question headings.
-
-## Development
+## Run locally
 
 ```bash
-npm run dev
-npm run test
+node server.js
 ```
 
-`npm run dev` starts the local Node server on port 5173 and exposes `/api/analyze` as a server-side OpenAI proxy. `npm run test` runs JavaScript syntax checks for the browser app and the Node server.
+The server starts on <http://localhost:5173> by default.
 
-### Extraction and OCR dependencies
+Useful environment variables:
 
-No npm dependencies are required for the current static build.
+```bash
+PORT=5173
+RECORD_ROOM_DATA_DIR=/record-room-data
+RECORD_ROOM_ADMIN_TOKEN=local-dev-admin
+OPENAI_API_KEY=sk-your-api-key
+OPENAI_MODEL=gpt-5-mini
+```
 
-Required runtime tools:
+## Test
 
-- Node.js LTS and npm for the local development server/test script.
-- A modern browser with IndexedDB, `Blob`, `FileReader`, and `DecompressionStream` support for DOCX ZIP/PDF Flate decompression. Use current Microsoft Edge or Google Chrome on Windows for best local DOCX/PDF extraction support.
+```bash
+npm test
+```
 
-Future OCR dependency placeholder:
+The test script runs JavaScript syntax checks for the browser app and the Node server.
 
-- Scanned PDFs and JPG/PNG OCR should connect next to either a local Tesseract.js worker bundled with the app or a private backend OCR service.
-- Keep uploaded files private. Do not send original file blobs to OpenAI pattern analysis. The OpenAI integration receives extracted text snippets with document/page/source references through the local Node proxy.
+## Deployment notes
 
-## Review workflow
+The app can run on Node-capable hosts such as Render or Railway. For Vercel/Netlify-style deployments, keep the static frontend but connect API routes to a Node/serverless backend with equivalent storage/database adapters.
 
-1. Enter submitter name, email, case/project name, document type, optional notes, and one or more accepted files.
-2. Submit the upload to generate a unique case ID and save metadata/files in local-only simulated private storage.
-3. Review the admin document list grouped by case/project.
-4. Select a case to inspect extracted document counts, text previews, timeline events, unified actor profiles, repeated procedural patterns, motion outcomes, and actor-based fact patterns in the analysis shell.
-5. Use the actor/conduct filters to narrow by actor, office, court, county, state, case number, document type, date range, issue type, or confidence level.
-6. Use a preset OpenAI analysis button or enter a custom question about the uploaded case documents.
-7. Review the AI report output headings, findings, citations, unsupported/not-established items, and suggested human review questions.
-8. Export the citation-backed JSON report for attorney review or further analysis.
+Before public production use:
 
-> This app supports legal document review. It does not provide legal advice, does not make final legal or ethics conclusions, and does not replace review by a licensed attorney. All actor-tracking, course-of-conduct, and pattern-analysis outputs require human legal review before use.
+- Replace the admin token placeholder with real authentication and authorization.
+- Configure production database/storage adapters.
+- Connect a malware scanner.
+- Connect OCR/PDF/DOC extraction workers as needed.
+- Review privacy, moderation, defamation, court-record, sealed-record, and data-retention policies with qualified counsel.
