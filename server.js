@@ -780,11 +780,43 @@ function handleDeleteDocument(response, id) {
 async function handleAskIndexedDocuments(request, response) {
   const body = await readJsonBody(request);
   const question = String(body.question || '').trim();
+  console.log('[documents/ask] question received:', question);
   if (!question) return sendJson(response, 400, { error: 'Question is required.' });
-  const docs = querySql(`SELECT id, original_filename, extracted_text FROM documents WHERE extraction_status='processed' ORDER BY updated_at DESC LIMIT 8;`);
+  const docs = querySql(`SELECT id, original_filename, extracted_text, extracted_text_path FROM documents WHERE extraction_status='processed' ORDER BY updated_at DESC LIMIT 8;`);
+  console.log(`[documents/ask] documents found: ${docs.length}`);
   if (!docs.length) return sendJson(response, 400, { error: 'No indexed documents yet. Upload files and wait for "Indexed for AI" status.' });
-  if (!OPENAI_API_KEY) return sendJson(response, 200, { answer: `Indexed documents found (${docs.length}), but OPENAI_API_KEY is not set.`, indexedDocumentCount: docs.length });
-  const context = docs.map((d) => `Document #${d.id} (${d.original_filename}):\n${(d.extracted_text || '').slice(0, 12000)}`).join('\n\n');
+
+  const chunks = [];
+  for (const doc of docs) {
+    let text = String(doc.extracted_text || '').trim();
+    if (!text && doc.extracted_text_path) {
+      text = await fs.readFile(doc.extracted_text_path, 'utf8').catch(() => '');
+    }
+    if (!text) continue;
+    const chunkSize = 1800;
+    for (let i = 0; i < text.length && chunks.length < 24; i += chunkSize) {
+      const chunkText = text.slice(i, i + chunkSize).trim();
+      if (!chunkText) continue;
+      chunks.push({
+        documentId: doc.id,
+        filename: doc.original_filename,
+        chunkIndex: Math.floor(i / chunkSize) + 1,
+        text: chunkText,
+      });
+    }
+    if (chunks.length >= 24) break;
+  }
+  console.log(`[documents/ask] chunks retrieved: ${chunks.length}`);
+  if (!chunks.length) {
+    return sendJson(response, 200, {
+      answer: 'No indexed text chunks were found for the selected documents. Re-process extraction or upload a text-readable document.',
+      indexedDocumentCount: docs.length,
+      chunkCount: 0,
+      noChunks: true,
+    });
+  }
+  if (!OPENAI_API_KEY) return sendJson(response, 200, { answer: `Indexed documents found (${docs.length}) and ${chunks.length} chunk(s) retrieved, but OPENAI_API_KEY is not set.`, indexedDocumentCount: docs.length, chunkCount: chunks.length });
+  const context = chunks.map((chunk) => `Document #${chunk.documentId} (${chunk.filename}) chunk ${chunk.chunkIndex}:\n${chunk.text}`).join('\n\n');
   const openAiResponse = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -792,7 +824,9 @@ async function handleAskIndexedDocuments(request, response) {
   });
   const result = await openAiResponse.json().catch(() => ({}));
   if (!openAiResponse.ok) return sendJson(response, openAiResponse.status, { error: result.error?.message || 'The OpenAI API request failed.' });
-  sendJson(response, 200, { answer: result.output_text || extractResponseText(result), indexedDocumentCount: docs.length });
+  const answer = result.output_text || extractResponseText(result);
+  console.log('[documents/ask] AI response:', answer);
+  sendJson(response, 200, { answer, indexedDocumentCount: docs.length, chunkCount: chunks.length });
 }
 
 async function parseMultipart(request) {
