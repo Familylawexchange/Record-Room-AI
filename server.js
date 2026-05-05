@@ -428,7 +428,7 @@ function handleHealth(response) {
 
 function applySafeMigrations() {
   const addColumns = {
-    documents: { document_title: 'TEXT', source_name: 'TEXT', document_hash: 'TEXT', text_hash: 'TEXT', confidence_score: 'REAL DEFAULT 0' },
+    documents: { document_title: 'TEXT', source_name: 'TEXT', document_hash: 'TEXT', text_hash: 'TEXT', confidence_score: 'REAL DEFAULT 0', ai_review_status: "TEXT DEFAULT 'pending'", ai_review_message: 'TEXT' },
     profiles: { normalized_name: 'TEXT', aliases: 'TEXT', associated_documents: 'TEXT', associated_claims: 'TEXT', source_summary: 'TEXT', public_notes: 'TEXT', profile_status: "TEXT DEFAULT 'new profile'", visibility: "TEXT DEFAULT 'private'" },
     research_leads: { source_platform: 'TEXT', acquisition_method: 'TEXT', case_name: 'TEXT', case_number: 'TEXT', state: 'TEXT', county: 'TEXT', court: 'TEXT', judge: 'TEXT', guardian_ad_litem: 'TEXT', attorneys: 'TEXT', prosecutor: 'TEXT', evaluator: 'TEXT', document_title: 'TEXT', docket_entry_text: 'TEXT', filing_date: 'TEXT', tags: 'TEXT', verification_source: 'TEXT', attachment_path: 'TEXT', attachment_filename: 'TEXT' },
     scanner_jobs: { state: 'TEXT', county: 'TEXT', court: 'TEXT', source_connector: 'TEXT', keyword_group: 'TEXT', custom_keywords: 'TEXT', person_name: 'TEXT', role: 'TEXT', case_type: 'TEXT', date_from: 'TEXT', date_to: 'TEXT', max_results: 'INTEGER' },
@@ -563,9 +563,11 @@ async function handleUpload(request, response, intakeMode) {
   const textPath = await storage.saveExtractedText(insert.id, extraction.text);
   const updated = querySql(`UPDATE documents SET extracted_text_path=${q(textPath)}, document_hash=${q(documentHash)}, text_hash=${q(textHash)}, document_title=${q(parsed.fields.document_title || parsed.fields.document_type || file.filename)}, source_name=${q(parsed.fields.source_name || parsed.fields.source_type)} WHERE id=${Number(insert.id)} RETURNING *;`)[0];
   querySql(`INSERT INTO extracted_text (document_id, text_path, text_content, extraction_status, extraction_message) VALUES (${Number(insert.id)}, ${q(textPath)}, ${q(extraction.text)}, ${q(extraction.status)}, ${q(extraction.message)}) ON CONFLICT(document_id) DO UPDATE SET updated_at=CURRENT_TIMESTAMP, text_path=excluded.text_path, text_content=excluded.text_content, extraction_status=excluded.extraction_status, extraction_message=excluded.extraction_message;`);
+  const aiReview = await generateAiReviewSummary(updated);
+  const updatedWithAi = querySql(`UPDATE documents SET ai_summary_json=${q(aiReview.aiSummaryJson || '')}, ai_review_status=${q(aiReview.aiReviewStatus)}, ai_review_message=${q(aiReview.aiReviewMessage)}, updated_at=${q(new Date().toISOString())} WHERE id=${Number(insert.id)} RETURNING *;`)[0];
   querySql(`INSERT INTO review_queue (item_type,item_id,status,notes) VALUES ('document', ${Number(insert.id)}, ${q(intakeMode === 'public_submission' ? 'pending' : 'private intake')}, ${q(intakeMode === 'public_submission' ? 'Public submission pending/private by default.' : 'Local private/admin-only intake.')});`);
-  querySql(`INSERT INTO search_index (item_type,item_id,title,body,source_label,reliability_tags) VALUES ('document', ${Number(insert.id)}, ${q(updated.document_title || updated.original_filename)}, ${q([updated.description, extraction.text].filter(Boolean).join('\n'))}, ${q(updated.source_label)}, ${q(updated.reliability_tags)});`);
-  sendJson(response, 201, { message: intakeMode === 'local_admin' ? 'Document saved to your local Record Room database.' : 'Your submission has been received for review. Submission does not guarantee publication.', document: publicSafeDocument(updated, true) });
+  querySql(`INSERT INTO search_index (item_type,item_id,title,body,source_label,reliability_tags) VALUES ('document', ${Number(insert.id)}, ${q(updatedWithAi.document_title || updatedWithAi.original_filename)}, ${q([updatedWithAi.description, extraction.text, aiReview.aiSummaryJson].filter(Boolean).join('\n'))}, ${q(updatedWithAi.source_label)}, ${q(updatedWithAi.reliability_tags)});`);
+  sendJson(response, 201, { message: intakeMode === 'local_admin' ? 'Document saved to your local Record Room database.' : 'Your submission has been received for review. Submission does not guarantee publication.', extractionStatus: extraction.status, extractionMessage: extraction.message, aiReviewStatus: aiReview.aiReviewStatus, aiReviewMessage: aiReview.aiReviewMessage, document: publicSafeDocument(updatedWithAi, true) });
 }
 
 function validateUploadedFile(file) {
@@ -771,16 +773,43 @@ function extractResponseText(result) {
 }
 
 
+
+
+async function generateAiReviewSummary(doc) {
+  if (!OPENAI_API_KEY) {
+    return { aiSummaryJson: '', aiReviewStatus: 'skipped', aiReviewMessage: 'OPENAI_API_KEY is not set; AI review skipped.' };
+  }
+  const text = String(doc.extracted_text || '').trim();
+  if (!text) {
+    return { aiSummaryJson: '', aiReviewStatus: 'pending', aiReviewMessage: 'No extracted text available for AI review yet.' };
+  }
+  try {
+    const openai = await getOpenAiClient();
+    const prompt = `Review this uploaded legal document and return strict JSON with keys: summary, key_entities, key_dates, potential_issues, confidence.\n\nDocument filename: ${doc.original_filename}\n\nDocument text:\n${text.slice(0, 22000)}`;
+    const result = await openai.responses.create({
+      model: OPENAI_MODEL,
+      input: prompt,
+      max_output_tokens: 800,
+    });
+    const output = (result.output_text || extractResponseText(result) || '').trim();
+    const aiSummaryJson = output || '{}';
+    return { aiSummaryJson, aiReviewStatus: 'processed', aiReviewMessage: 'AI review completed with OpenAI API.' };
+  } catch (error) {
+    return { aiSummaryJson: '', aiReviewStatus: 'failed', aiReviewMessage: `AI review failed: ${error.message}` };
+  }
+}
+
 function mapDocumentFlowStatus(row) {
   const uploadStatusLabel = row.review_status === 'rejected' ? 'Failed' : 'Uploaded';
   let aiIndexingStatusLabel = 'Processing';
-  if (row.extraction_status === 'failed') aiIndexingStatusLabel = 'Failed';
+  if (row.extraction_status === 'failed') aiIndexingStatusLabel = 'Extraction failed';
+  else if (row.extraction_status === 'processed' && row.ai_review_status === 'processed') aiIndexingStatusLabel = 'Indexed + AI reviewed';
   else if (row.extraction_status === 'processed') aiIndexingStatusLabel = 'Indexed for AI';
-  return { ...publicSafeDocument(row, true), uploadStatusLabel, aiIndexingStatusLabel };
+  return { ...publicSafeDocument(row, true), uploadStatusLabel, aiIndexingStatusLabel, flowMessage: row.ai_review_message || row.extraction_message || '' };
 }
 
 function handleDocumentsFlow(response) {
-  const rows = querySql(`SELECT id, created_at, original_filename, file_size, review_status, extraction_status FROM documents ORDER BY created_at DESC LIMIT 500;`);
+  const rows = querySql(`SELECT id, created_at, original_filename, file_size, review_status, extraction_status, extraction_message, ai_review_status, ai_review_message FROM documents ORDER BY created_at DESC LIMIT 500;`);
   sendJson(response, 200, { uploadDirectory: UPLOAD_DIR, documents: rows.map(mapDocumentFlowStatus) });
 }
 
