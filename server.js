@@ -447,20 +447,20 @@ function handleRoutesPage(response) {
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
-  <main class="routesPage">
-    <section class="panel">
+  <main class="routesPage page-shell">
+    <section class="card panel">
       <p class="eyebrow">Local development</p>
       <h1 class="pageTitle">Record Room AI routes</h1>
       <p>This page is visible only when <code>NODE_ENV</code> is not <code>production</code>. Local admin API requests may use the default token <code>${escapeHtml(ADMIN_TOKEN)}</code>, but normal browser page visits do not require custom headers.</p>
       <p><a class="buttonLink" href="/admin?token=${encodeURIComponent(ADMIN_TOKEN)}">Open admin dashboard</a> <a class="buttonLink" href="/api/health">View API health JSON</a></p>
     </section>
-    <section class="panel">
+    <section class="card panel">
       <h2>Frontend routes</h2>
-      <div class="tableWrap"><table><thead><tr><th>Route</th><th>Description</th><th>Admin auth</th><th>Status</th></tr></thead><tbody>${routeRows(FRONTEND_ROUTES)}</tbody></table></div>
+      <div class="table-wrap tableWrap"><table><thead><tr><th>Route</th><th>Description</th><th>Admin auth</th><th>Status</th></tr></thead><tbody>${routeRows(FRONTEND_ROUTES)}</tbody></table></div>
     </section>
-    <section class="panel">
+    <section class="card panel">
       <h2>API routes</h2>
-      <div class="tableWrap"><table><thead><tr><th>Method</th><th>Route</th><th>Description</th><th>Admin auth</th><th>Status</th></tr></thead><tbody>${routeRows(API_ROUTES, true)}</tbody></table></div>
+      <div class="table-wrap tableWrap"><table><thead><tr><th>Method</th><th>Route</th><th>Description</th><th>Admin auth</th><th>Status</th></tr></thead><tbody>${routeRows(API_ROUTES, true)}</tbody></table></div>
     </section>
   </main>
 </body>
