@@ -23,6 +23,16 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 30;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5-mini';
+let openAiClientPromise;
+
+async function getOpenAiClient() {
+  if (!openAiClientPromise) {
+    openAiClientPromise = import('openai').then(({ default: OpenAI }) => (
+      new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    ));
+  }
+  return openAiClientPromise;
+}
 const REQUIRED_TABLES = [
   'sources', 'scanner_jobs', 'raw_results', 'documents', 'extracted_text', 'profiles', 'profile_aliases',
   'claims', 'claim_sources', 'review_queue', 'research_leads', 'search_index',
@@ -741,13 +751,19 @@ function handleCsvExport(response) {
 async function handleAnalyze(request, response) {
   if (!OPENAI_API_KEY) return sendJson(response, 503, { error: 'OPENAI_API_KEY is not set on the Node server.' });
   const payload = await readJsonBody(request);
-  const openAiResponse = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST', headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: OPENAI_MODEL, instructions: 'Create a source-bound Record Room summary. Separate verified official information, court-record-supported information, user-submitted allegations, unresolved/conflicting information, self-promotional sources, and marketing/review-based sources. Every claim must cite a supplied document id/source record.', input: JSON.stringify(payload), max_output_tokens: 1800 }),
-  });
-  const result = await openAiResponse.json().catch(() => ({}));
-  if (!openAiResponse.ok) return sendJson(response, openAiResponse.status, { error: result.error?.message || 'The OpenAI API request failed.' });
-  sendJson(response, 200, { analysis: result.output_text || extractResponseText(result), model: result.model || OPENAI_MODEL, responseId: result.id });
+  try {
+    const client = await getOpenAiClient();
+    const result = await client.responses.create({
+      model: OPENAI_MODEL,
+      instructions: 'Create a source-bound Record Room summary. Separate verified official information, court-record-supported information, user-submitted allegations, unresolved/conflicting information, self-promotional sources, and marketing/review-based sources. Every claim must cite a supplied document id/source record.',
+      input: JSON.stringify(payload),
+      max_output_tokens: 1800,
+    });
+    sendJson(response, 200, { analysis: result.output_text || extractResponseText(result), model: result.model || OPENAI_MODEL, responseId: result.id });
+  } catch (error) {
+    console.error('[analyze] OpenAI API error:', error);
+    return sendJson(response, error.status || 500, { error: error.message || 'The OpenAI API request failed.' });
+  }
 }
 
 function extractResponseText(result) {
@@ -817,16 +833,23 @@ async function handleAskIndexedDocuments(request, response) {
   }
   if (!OPENAI_API_KEY) return sendJson(response, 200, { answer: `Indexed documents found (${docs.length}) and ${chunks.length} chunk(s) retrieved, but OPENAI_API_KEY is not set.`, indexedDocumentCount: docs.length, chunkCount: chunks.length });
   const context = chunks.map((chunk) => `Document #${chunk.documentId} (${chunk.filename}) chunk ${chunk.chunkIndex}:\n${chunk.text}`).join('\n\n');
-  const openAiResponse = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: OPENAI_MODEL, instructions: 'Answer ONLY using the provided indexed document excerpts. If the answer is not present, say you could not find it in indexed documents.', input: `Question: ${question}\n\nIndexed document excerpts:\n${context}`, max_output_tokens: 800 }),
-  });
-  const result = await openAiResponse.json().catch(() => ({}));
-  if (!openAiResponse.ok) return sendJson(response, openAiResponse.status, { error: result.error?.message || 'The OpenAI API request failed.' });
-  const answer = result.output_text || extractResponseText(result);
-  console.log('[documents/ask] AI response:', answer);
-  sendJson(response, 200, { answer, indexedDocumentCount: docs.length, chunkCount: chunks.length });
+  try {
+    const client = await getOpenAiClient();
+    const result = await client.responses.create({
+      model: OPENAI_MODEL,
+      input: [
+        { role: 'system', content: 'Answer ONLY using the provided indexed document excerpts. If the answer is not present, say you could not find it in indexed documents.' },
+        { role: 'user', content: `Question: ${question}\n\nIndexed document excerpts:\n${context}` },
+      ],
+      max_output_tokens: 800,
+    });
+    const answer = result.output_text || extractResponseText(result);
+    console.log('[documents/ask] AI response:', answer);
+    sendJson(response, 200, { answer, indexedDocumentCount: docs.length, chunkCount: chunks.length });
+  } catch (error) {
+    console.error('[documents/ask] OpenAI API error:', error);
+    return sendJson(response, error.status || 500, { error: error.message || 'The OpenAI API request failed.' });
+  }
 }
 
 async function parseMultipart(request) {

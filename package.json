@@ -4,7 +4,8 @@
     "test": "node --check src/app.js && node --check server.js"
   },
   "dependencies": {
-    "better-sqlite3": "file:vendor/better-sqlite3"
+    "better-sqlite3": "file:vendor/better-sqlite3",
+    "openai": "^4.0.0"
   },
   "devDependencies": {}
 }
