@@ -1,0 +1,24 @@
+diff --git a/404.html b/404.html
+new file mode 100644
+index 0000000000000000000000000000000000000000..a06cea76f479d03b7d9a75f0815ab15544ceb2e3
+--- /dev/null
++++ b/404.html
+@@ -0,0 +1,18 @@
++<!doctype html>
++<html lang="en">
++  <head>
++    <meta charset="UTF-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <title>Record Room AI</title>
++    <script>
++      (function () {
++        var path = window.location.pathname || '/';
++        var query = window.location.search ? window.location.search.slice(1) : '';
++        var redirect = '/?p=' + encodeURIComponent(path);
++        if (query) redirect += '&' + query;
++        window.location.replace(redirect + window.location.hash);
++      })();
++    </script>
++  </head>
++  <body></body>
++</html>
