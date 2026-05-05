@@ -3,6 +3,8 @@
     "dev": "node server.js",
     "test": "node --check src/app.js && node --check server.js"
   },
-  "dependencies": {},
+  "dependencies": {
+    "better-sqlite3": "^12.9.0"
+  },
   "devDependencies": {}
 }

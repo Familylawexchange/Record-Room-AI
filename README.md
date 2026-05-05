@@ -9,9 +9,9 @@ Record Room AI is now a full-stack Node application for two intake workflows:
 
 Local development uses real persistent storage instead of browser-only storage:
 
-- Original uploads: `/record-room-data/uploads`
-- Extracted text files: `/record-room-data/extracted-text`
-- SQLite database: `/record-room-data/database.sqlite`
+- Original uploads: `./record-room-data/uploads`
+- Extracted text files: `./record-room-data/extracted-text`
+- SQLite database: `./record-room-data/database.sqlite`
 
 The server code keeps storage and database operations behind small helper layers so a later production build can replace local folders and SQLite with cloud object storage and a managed database.
 
@@ -74,7 +74,7 @@ When a file is uploaded, the server:
    - PDF: best-effort embedded-text extraction placeholder.
    - DOC: legacy parser placeholder.
    - JPG/JPEG/PNG: OCR placeholder.
-5. Stores extracted text in the database and `/record-room-data/extracted-text`.
+5. Stores extracted text in the database and `./record-room-data/extracted-text`.
 6. Keeps the file even if extraction is pending or failed.
 
 ## Profiles, source labels, and source-bound summaries
@@ -88,16 +88,17 @@ The database includes an AI-ready source-bound summary structure that separates 
 ## Run locally
 
 ```bash
+npm install
 node server.js
 ```
 
-The server starts on <http://localhost:5173> by default.
+The server starts on <http://localhost:5173> by default. Startup automatically creates `./record-room-data`, `./record-room-data/uploads`, `./record-room-data/extracted-text`, `./record-room-data/database.sqlite`, and the required SQLite schema. You can verify the runtime state at `/health` or safely rerun setup at `/setup`.
 
 Useful environment variables:
 
 ```bash
 PORT=5173
-RECORD_ROOM_DATA_DIR=/record-room-data
+RECORD_ROOM_DATA_DIR=./record-room-data
 RECORD_ROOM_ADMIN_TOKEN=local-dev-admin
 OPENAI_API_KEY=sk-your-api-key
 OPENAI_MODEL=gpt-5-mini
