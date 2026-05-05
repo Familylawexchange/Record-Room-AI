@@ -85,6 +85,9 @@ const API_ROUTES = [
   { method: 'POST', path: '/api/admin/login', description: 'Admin token login helper', adminAuth: IS_PRODUCTION },
   { method: 'GET', path: '/api/admin/stats', description: 'Admin dashboard counts', adminAuth: IS_PRODUCTION },
   { method: 'GET', path: '/api/admin/uploads', description: 'Admin upload review queue', adminAuth: IS_PRODUCTION },
+  { method: 'GET', path: '/api/admin/documents/flow', description: 'Documents flow list for upload/indexing', adminAuth: IS_PRODUCTION },
+  { method: 'POST', path: '/api/admin/documents/ask', description: 'Ask AI using only indexed documents', adminAuth: IS_PRODUCTION },
+  { method: 'DELETE', path: '/api/admin/documents/:id', description: 'Delete uploaded test document', adminAuth: IS_PRODUCTION },
   { method: 'GET', path: '/api/admin/uploads/export.csv', description: 'Admin CSV export', adminAuth: IS_PRODUCTION },
   { method: 'GET', path: '/api/admin/profiles', description: 'Admin profile list', adminAuth: IS_PRODUCTION },
   { method: 'POST', path: '/api/admin/profiles', description: 'Admin profile creation', adminAuth: IS_PRODUCTION },
@@ -492,6 +495,9 @@ async function routeApi(request, response, url) {
   if (url.pathname === '/api/admin/stats' && request.method === 'GET') return handleAdminStats(response);
   if (url.pathname === '/api/admin/uploads' && request.method === 'GET') return handleAdminUploads(response, url);
   if (url.pathname === '/api/admin/uploads/export.csv' && request.method === 'GET') return handleCsvExport(response);
+  if (url.pathname === '/api/admin/documents/flow' && request.method === 'GET') return handleDocumentsFlow(response);
+  if (url.pathname === '/api/admin/documents/ask' && request.method === 'POST') return handleAskIndexedDocuments(request, response);
+
   if (url.pathname === '/api/admin/profiles' && request.method === 'GET') return sendJson(response, 200, { profiles: querySql('SELECT * FROM profiles ORDER BY updated_at DESC') });
   if (url.pathname === '/api/admin/profiles' && request.method === 'POST') return handleCreateProfile(request, response);
   if (url.pathname === '/api/admin/research-leads' && request.method === 'GET') return sendJson(response, 200, { leads: querySql('SELECT * FROM research_leads ORDER BY updated_at DESC LIMIT 500') });
@@ -505,6 +511,8 @@ async function routeApi(request, response, url) {
   if (textMatch && request.method === 'GET') return handleExtractedText(response, Number(textMatch[1]));
   const uploadMatch = url.pathname.match(/^\/api\/admin\/uploads\/(\d+)$/);
   if (uploadMatch && request.method === 'PATCH') return handleUpdateUpload(request, response, Number(uploadMatch[1]));
+  const documentDeleteMatch = url.pathname.match(/^\/api\/admin\/documents\/(\d+)$/);
+  if (documentDeleteMatch && request.method === 'DELETE') return handleDeleteDocument(response, Number(documentDeleteMatch[1]));
   const profileFromMatch = url.pathname.match(/^\/api\/admin\/uploads\/(\d+)\/create-profile$/);
   if (profileFromMatch && request.method === 'POST') return handleCreateProfileFromUpload(response, Number(profileFromMatch[1]));
   const assignMatch = url.pathname.match(/^\/api\/admin\/uploads\/(\d+)\/assign-profile\/(\d+)$/);
@@ -744,6 +752,47 @@ async function handleAnalyze(request, response) {
 
 function extractResponseText(result) {
   return (result.output || []).flatMap((item) => item.content || []).map((content) => content.text || '').filter(Boolean).join('\n').trim();
+}
+
+
+function mapDocumentFlowStatus(row) {
+  const uploadStatusLabel = row.review_status === 'rejected' ? 'Failed' : 'Uploaded';
+  let aiIndexingStatusLabel = 'Processing';
+  if (row.extraction_status === 'failed') aiIndexingStatusLabel = 'Failed';
+  else if (row.extraction_status === 'processed') aiIndexingStatusLabel = 'Indexed for AI';
+  return { ...publicSafeDocument(row, true), uploadStatusLabel, aiIndexingStatusLabel };
+}
+
+function handleDocumentsFlow(response) {
+  const rows = querySql(`SELECT id, created_at, original_filename, file_size, review_status, extraction_status FROM documents ORDER BY created_at DESC LIMIT 500;`);
+  sendJson(response, 200, { uploadDirectory: UPLOAD_DIR, documents: rows.map(mapDocumentFlowStatus) });
+}
+
+function handleDeleteDocument(response, id) {
+  const doc = querySql(`SELECT id, file_path, extracted_text_path FROM documents WHERE id=${Number(id)};`)[0];
+  if (!doc) return sendJson(response, 404, { error: 'Document not found.' });
+  querySql(`DELETE FROM documents WHERE id=${Number(id)};`);
+  if (doc.file_path) fss.rmSync(doc.file_path, { force: true });
+  if (doc.extracted_text_path) fss.rmSync(doc.extracted_text_path, { force: true });
+  sendJson(response, 200, { message: 'Document deleted.' });
+}
+
+async function handleAskIndexedDocuments(request, response) {
+  const body = await readJsonBody(request);
+  const question = String(body.question || '').trim();
+  if (!question) return sendJson(response, 400, { error: 'Question is required.' });
+  const docs = querySql(`SELECT id, original_filename, extracted_text FROM documents WHERE extraction_status='processed' ORDER BY updated_at DESC LIMIT 8;`);
+  if (!docs.length) return sendJson(response, 400, { error: 'No indexed documents yet. Upload files and wait for "Indexed for AI" status.' });
+  if (!OPENAI_API_KEY) return sendJson(response, 200, { answer: `Indexed documents found (${docs.length}), but OPENAI_API_KEY is not set.`, indexedDocumentCount: docs.length });
+  const context = docs.map((d) => `Document #${d.id} (${d.original_filename}):\n${(d.extracted_text || '').slice(0, 12000)}`).join('\n\n');
+  const openAiResponse = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: OPENAI_MODEL, instructions: 'Answer ONLY using the provided indexed document excerpts. If the answer is not present, say you could not find it in indexed documents.', input: `Question: ${question}\n\nIndexed document excerpts:\n${context}`, max_output_tokens: 800 }),
+  });
+  const result = await openAiResponse.json().catch(() => ({}));
+  if (!openAiResponse.ok) return sendJson(response, openAiResponse.status, { error: result.error?.message || 'The OpenAI API request failed.' });
+  sendJson(response, 200, { answer: result.output_text || extractResponseText(result), indexedDocumentCount: docs.length });
 }
 
 async function parseMultipart(request) {
