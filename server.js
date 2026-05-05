@@ -36,15 +36,20 @@ const uploadFieldNames = ['file', 'documents', 'document'];
 const rateBuckets = new Map();
 
 const sourceLabels = [
-  'official disciplinary record', 'court order', 'appellate opinion', 'trial court filing', 'transcript', 'public docket',
-  'government record', 'bar record', 'judicial commission record', 'news article', 'user-submitted document', 'review',
-  'law firm website', 'personal website', 'marketing profile', 'social media', 'unknown source',
+  'official court source', 'appellate opinion', 'trial court order', 'trial court filing', 'transcript', 'public docket',
+  'RECAP/PACER record', 'official disciplinary record', 'bar record', 'judicial commission record',
+  'prosecutor office/government record', 'news/public source', 'commercial legal research platform',
+  'Trellis Law research lead', 'Westlaw manual upload', 'Lexis manual upload', 'UniCourt research lead',
+  'Docket Alarm research lead', 'user-submitted document', 'law firm website', 'personal website',
+  'marketing profile', 'review', 'social media', 'anonymous', 'unknown source',
 ];
 const reliabilityTags = [
-  'verified official source', 'court-record supported', 'user-submitted', 'unverified allegation', 'self-promotional source',
-  'adversarial source', 'anonymous source', 'conflicting sources', 'needs admin review',
+  'verified official source', 'court-record supported', 'filed allegation, not adjudicated', 'appellate finding',
+  'disciplinary finding', 'user-submitted', 'unverified allegation', 'self-promotional source',
+  'adversarial source', 'anonymous source', 'conflicting information', 'needs admin review',
+  'needs official verification', 'do not publish',
 ];
-const professionalRoles = ['judge', 'guardian ad litem', 'attorney', 'prosecutor', 'evaluator', 'court staff', 'other legal professional', 'other'];
+const professionalRoles = ['judge', 'guardian ad litem', 'attorney', 'prosecutor', 'evaluator', 'court staff', 'agency', 'other'];
 
 const FRONTEND_ROUTES = [
   { path: '/', description: 'Public home and overview', adminAuth: false },
@@ -52,7 +57,11 @@ const FRONTEND_ROUTES = [
   { path: '/upload', description: 'Local upload/intake page', adminAuth: false },
   { path: '/search', description: 'Public search page', adminAuth: false },
   { path: '/public-search', description: 'Public search page alias', adminAuth: false },
-  { path: '/profiles', description: 'Public profiles page', adminAuth: false },
+  { path: '/profiles', description: 'Admin profile manager', adminAuth: false },
+  { path: '/review', description: 'Admin review queue', adminAuth: false },
+  { path: '/documents', description: 'Admin document list', adminAuth: false },
+  { path: '/leads', description: 'Research leads / manual import', adminAuth: false },
+  { path: '/scanner', description: 'Scanner jobs placeholders', adminAuth: false },
   { path: '/record-room-submit', description: 'Public submission page alias', adminAuth: false },
   { path: '/admin', description: 'Admin dashboard app shell', adminAuth: IS_PRODUCTION },
   { path: '/admin/scanner', description: 'Admin scanner workspace', adminAuth: IS_PRODUCTION },
@@ -74,10 +83,15 @@ const API_ROUTES = [
   { method: 'GET', path: '/api/public/search', description: 'Approved public record search', adminAuth: false },
   { method: 'POST', path: '/api/analyze', description: 'OpenAI source-bound analysis helper', adminAuth: false },
   { method: 'POST', path: '/api/admin/login', description: 'Admin token login helper', adminAuth: IS_PRODUCTION },
+  { method: 'GET', path: '/api/admin/stats', description: 'Admin dashboard counts', adminAuth: IS_PRODUCTION },
   { method: 'GET', path: '/api/admin/uploads', description: 'Admin upload review queue', adminAuth: IS_PRODUCTION },
   { method: 'GET', path: '/api/admin/uploads/export.csv', description: 'Admin CSV export', adminAuth: IS_PRODUCTION },
   { method: 'GET', path: '/api/admin/profiles', description: 'Admin profile list', adminAuth: IS_PRODUCTION },
   { method: 'POST', path: '/api/admin/profiles', description: 'Admin profile creation', adminAuth: IS_PRODUCTION },
+  { method: 'GET', path: '/api/admin/research-leads', description: 'Research lead list', adminAuth: IS_PRODUCTION },
+  { method: 'POST', path: '/api/admin/research-leads', description: 'Research lead creation', adminAuth: IS_PRODUCTION },
+  { method: 'GET', path: '/api/admin/scanner-jobs', description: 'Scanner jobs list', adminAuth: IS_PRODUCTION },
+  { method: 'POST', path: '/api/admin/scanner-jobs', description: 'Scanner placeholder job creation', adminAuth: IS_PRODUCTION },
   { method: 'GET', path: '/api/admin/uploads/:id/download', description: 'Admin original-file download', adminAuth: IS_PRODUCTION },
   { method: 'GET', path: '/api/admin/uploads/:id/text', description: 'Admin extracted text', adminAuth: IS_PRODUCTION },
   { method: 'PATCH', path: '/api/admin/uploads/:id', description: 'Admin upload metadata/status update', adminAuth: IS_PRODUCTION },
@@ -161,6 +175,7 @@ async function initializeDatabase() {
     }
 
     runSql(SCHEMA_SQL);
+    applySafeMigrations();
     const tables = getTables();
     const missingTables = REQUIRED_TABLES.filter((table) => !tables.includes(table));
     if (missingTables.length) throw new Error(`Schema initialized but required tables are missing: ${missingTables.join(', ')}`);
@@ -191,6 +206,18 @@ CREATE TABLE IF NOT EXISTS scanner_jobs (
   source_id INTEGER,
   query TEXT,
   message TEXT,
+  state TEXT,
+  county TEXT,
+  court TEXT,
+  source_connector TEXT,
+  keyword_group TEXT,
+  custom_keywords TEXT,
+  person_name TEXT,
+  role TEXT,
+  case_type TEXT,
+  date_from TEXT,
+  date_to TEXT,
+  max_results INTEGER,
   FOREIGN KEY(source_id) REFERENCES sources(id)
 );
 CREATE TABLE IF NOT EXISTS raw_results (
@@ -340,8 +367,27 @@ CREATE TABLE IF NOT EXISTS research_leads (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   profile_id INTEGER,
   lead_text TEXT NOT NULL,
+  source_platform TEXT,
   source_url TEXT,
-  status TEXT NOT NULL DEFAULT 'open',
+  acquisition_method TEXT,
+  case_name TEXT,
+  case_number TEXT,
+  state TEXT,
+  county TEXT,
+  court TEXT,
+  judge TEXT,
+  guardian_ad_litem TEXT,
+  attorneys TEXT,
+  prosecutor TEXT,
+  evaluator TEXT,
+  document_title TEXT,
+  docket_entry_text TEXT,
+  filing_date TEXT,
+  tags TEXT,
+  verification_source TEXT,
+  attachment_path TEXT,
+  attachment_filename TEXT,
+  status TEXT NOT NULL DEFAULT 'new lead',
   notes TEXT,
   FOREIGN KEY(profile_id) REFERENCES profiles(id) ON DELETE SET NULL
 );
@@ -365,6 +411,21 @@ END;
 
 function handleHealth(response) {
   sendJson(response, 200, { server: 'running', database: db ? 'connected' : 'disconnected', dataRoot: DATA_ROOT, databasePath: DB_PATH, tables: getTables() });
+}
+
+function applySafeMigrations() {
+  const addColumns = {
+    documents: { document_title: 'TEXT', source_name: 'TEXT', document_hash: 'TEXT', text_hash: 'TEXT', confidence_score: 'REAL DEFAULT 0' },
+    profiles: { normalized_name: 'TEXT', aliases: 'TEXT', associated_documents: 'TEXT', associated_claims: 'TEXT', source_summary: 'TEXT', public_notes: 'TEXT', profile_status: "TEXT DEFAULT 'new profile'", visibility: "TEXT DEFAULT 'private'" },
+    research_leads: { source_platform: 'TEXT', acquisition_method: 'TEXT', case_name: 'TEXT', case_number: 'TEXT', state: 'TEXT', county: 'TEXT', court: 'TEXT', judge: 'TEXT', guardian_ad_litem: 'TEXT', attorneys: 'TEXT', prosecutor: 'TEXT', evaluator: 'TEXT', document_title: 'TEXT', docket_entry_text: 'TEXT', filing_date: 'TEXT', tags: 'TEXT', verification_source: 'TEXT', attachment_path: 'TEXT', attachment_filename: 'TEXT' },
+    scanner_jobs: { state: 'TEXT', county: 'TEXT', court: 'TEXT', source_connector: 'TEXT', keyword_group: 'TEXT', custom_keywords: 'TEXT', person_name: 'TEXT', role: 'TEXT', case_type: 'TEXT', date_from: 'TEXT', date_to: 'TEXT', max_results: 'INTEGER' },
+  };
+  for (const [table, columns] of Object.entries(addColumns)) {
+    const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name));
+    for (const [column, type] of Object.entries(columns)) {
+      if (!existing.has(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type};`);
+    }
+  }
 }
 
 function handleRoutesPage(response) {
@@ -428,10 +489,15 @@ async function routeApi(request, response, url) {
 
   if (!url.pathname.startsWith('/api/admin/')) return sendJson(response, 404, { error: 'Not found.' });
   requireAdmin(request);
+  if (url.pathname === '/api/admin/stats' && request.method === 'GET') return handleAdminStats(response);
   if (url.pathname === '/api/admin/uploads' && request.method === 'GET') return handleAdminUploads(response, url);
   if (url.pathname === '/api/admin/uploads/export.csv' && request.method === 'GET') return handleCsvExport(response);
   if (url.pathname === '/api/admin/profiles' && request.method === 'GET') return sendJson(response, 200, { profiles: querySql('SELECT * FROM profiles ORDER BY updated_at DESC') });
   if (url.pathname === '/api/admin/profiles' && request.method === 'POST') return handleCreateProfile(request, response);
+  if (url.pathname === '/api/admin/research-leads' && request.method === 'GET') return sendJson(response, 200, { leads: querySql('SELECT * FROM research_leads ORDER BY updated_at DESC LIMIT 500') });
+  if (url.pathname === '/api/admin/research-leads' && request.method === 'POST') return handleCreateResearchLead(request, response);
+  if (url.pathname === '/api/admin/scanner-jobs' && request.method === 'GET') return sendJson(response, 200, { jobs: querySql('SELECT * FROM scanner_jobs ORDER BY updated_at DESC LIMIT 500') });
+  if (url.pathname === '/api/admin/scanner-jobs' && request.method === 'POST') return handleCreateScannerJob(request, response);
 
   const downloadMatch = url.pathname.match(/^\/api\/admin\/uploads\/(\d+)\/download$/);
   if (downloadMatch && request.method === 'GET') return handleDownload(response, Number(downloadMatch[1]));
@@ -462,9 +528,11 @@ async function handleUpload(request, response, intakeMode) {
   const extension = path.extname(file.filename).toLowerCase();
   const saved = await storage.saveOriginal({ data: file.data, extension });
   const extraction = await extractText(file, extension);
-  const initialStatus = intakeMode === 'local_admin' ? 'pending' : 'pending';
+  const documentHash = crypto.createHash('sha256').update(file.data).digest('hex');
+  const textHash = extraction.text ? crypto.createHash('sha256').update(extraction.text).digest('hex') : null;
+  const initialStatus = intakeMode === 'local_admin' ? 'private intake' : 'pending';
   const visibility = intakeMode === 'local_admin' ? 'private' : 'private';
-  const sourceLabel = normalizeChoice(parsed.fields.source_label || parsed.fields.source_type, sourceLabels, 'unknown source');
+  const sourceLabel = normalizeChoice(parsed.fields.source_label || parsed.fields.source_type, sourceLabels, intakeMode === 'public_submission' ? 'user-submitted document' : 'unknown source');
   const reliability = normalizeTags(parsed.fields.reliability_tags || (intakeMode === 'public_submission' ? 'user-submitted,needs admin review,unverified allegation' : 'needs admin review'), reliabilityTags);
 
   const insert = querySql(`
@@ -475,8 +543,10 @@ async function handleUpload(request, response, intakeMode) {
     ].join(',')}) RETURNING *;
   `)[0];
   const textPath = await storage.saveExtractedText(insert.id, extraction.text);
-  const updated = querySql(`UPDATE documents SET extracted_text_path=${q(textPath)} WHERE id=${Number(insert.id)} RETURNING *;`)[0];
+  const updated = querySql(`UPDATE documents SET extracted_text_path=${q(textPath)}, document_hash=${q(documentHash)}, text_hash=${q(textHash)}, document_title=${q(parsed.fields.document_title || parsed.fields.document_type || file.filename)}, source_name=${q(parsed.fields.source_name || parsed.fields.source_type)} WHERE id=${Number(insert.id)} RETURNING *;`)[0];
   querySql(`INSERT INTO extracted_text (document_id, text_path, text_content, extraction_status, extraction_message) VALUES (${Number(insert.id)}, ${q(textPath)}, ${q(extraction.text)}, ${q(extraction.status)}, ${q(extraction.message)}) ON CONFLICT(document_id) DO UPDATE SET updated_at=CURRENT_TIMESTAMP, text_path=excluded.text_path, text_content=excluded.text_content, extraction_status=excluded.extraction_status, extraction_message=excluded.extraction_message;`);
+  querySql(`INSERT INTO review_queue (item_type,item_id,status,notes) VALUES ('document', ${Number(insert.id)}, ${q(intakeMode === 'public_submission' ? 'pending' : 'private intake')}, ${q(intakeMode === 'public_submission' ? 'Public submission pending/private by default.' : 'Local private/admin-only intake.')});`);
+  querySql(`INSERT INTO search_index (item_type,item_id,title,body,source_label,reliability_tags) VALUES ('document', ${Number(insert.id)}, ${q(updated.document_title || updated.original_filename)}, ${q([updated.description, extraction.text].filter(Boolean).join('\n'))}, ${q(updated.source_label)}, ${q(updated.reliability_tags)});`);
   sendJson(response, 201, { message: intakeMode === 'local_admin' ? 'Document saved to your local Record Room database.' : 'Your submission has been received for review. Submission does not guarantee publication.', document: publicSafeDocument(updated, true) });
 }
 
@@ -546,8 +616,8 @@ function handlePublicSearch(response, url) {
 
 function buildDocumentWhere(url, publicOnly) {
   const filters = [];
-  if (publicOnly) filters.push("review_status='approved'", "visibility='public'");
-  const exactMap = { status: 'review_status', visibility: 'visibility', role: 'subject_role', county: 'county', state: 'state', court: 'court', case_number: 'case_number', source_type: 'source_type', source_label: 'source_label' };
+  if (publicOnly) filters.push("review_status IN ('approved','approved public')", "visibility='public'", "redaction_status NOT IN ('needs redaction','sealed/do not publish')");
+  const exactMap = { status: 'review_status', visibility: 'visibility', role: 'subject_role', county: 'county', state: 'state', court: 'court', case_number: 'case_number', source_type: 'source_type', source_label: 'source_label', name: 'subject_name' };
   for (const [param, column] of Object.entries(exactMap)) if (url.searchParams.get(param)) filters.push(`${column} LIKE ${q(`%${url.searchParams.get(param)}%`)}`);
   if (url.searchParams.get('q')) {
     const term = url.searchParams.get('q');
@@ -582,6 +652,53 @@ async function handleExtractedText(response, id) {
   let text = doc.extracted_text || '';
   if (!text && doc.extracted_text_path) text = await fs.readFile(doc.extracted_text_path, 'utf8').catch(() => '');
   sendJson(response, 200, { text, extractionStatus: doc.extraction_status, extractionMessage: doc.extraction_message });
+}
+
+
+function handleAdminStats(response) {
+  const health = { server: 'running', database: db ? 'connected' : 'disconnected', dataRoot: DATA_ROOT, databasePath: DB_PATH, tables: getTables() };
+  const scalar = (sql) => Number(querySql(sql)[0]?.count || 0);
+  const stats = {
+    totalDocuments: scalar('SELECT COUNT(*) AS count FROM documents;'),
+    pendingReviewCount: scalar("SELECT COUNT(*) AS count FROM documents WHERE review_status IN ('pending','needs redaction','needs official source verification','private intake');") + scalar("SELECT COUNT(*) AS count FROM review_queue WHERE status='pending';"),
+    publicApprovedCount: scalar("SELECT COUNT(*) AS count FROM documents WHERE review_status IN ('approved','approved public') AND visibility='public' AND redaction_status NOT IN ('needs redaction','sealed/do not publish');"),
+    privateAdminOnlyCount: scalar("SELECT COUNT(*) AS count FROM documents WHERE visibility IN ('private','admin-only');"),
+    profilesCount: scalar('SELECT COUNT(*) AS count FROM profiles;'),
+    researchLeadsCount: scalar('SELECT COUNT(*) AS count FROM research_leads;'),
+    scannerJobsCount: scalar('SELECT COUNT(*) AS count FROM scanner_jobs;'),
+  };
+  sendJson(response, 200, { health, stats });
+}
+
+async function handleCreateResearchLead(request, response) {
+  const parsed = await parseMultipart(request);
+  const fields = parsed.fields;
+  let attachment = { storedPath: null, storedName: null };
+  const file = uploadFieldNames.map((name) => parsed.files[name]).find(Boolean);
+  if (file) {
+    const validation = validateUploadedFile(file);
+    if (validation) return sendJson(response, 400, { error: validation });
+    attachment = await storage.saveOriginal({ data: file.data, extension: path.extname(file.filename).toLowerCase() });
+    attachment.originalName = file.filename;
+  }
+  const now = new Date().toISOString();
+  const leadText = fields.docket_entry_text || fields.document_title || fields.case_name || 'Manual research lead';
+  const columns = ['created_at','updated_at','lead_text','source_platform','source_url','acquisition_method','case_name','case_number','state','county','court','judge','guardian_ad_litem','attorneys','prosecutor','evaluator','document_title','docket_entry_text','filing_date','notes','tags','verification_source','status','attachment_path','attachment_filename'];
+  const values = [now, now, leadText, fields.source_platform, fields.source_url, fields.acquisition_method, fields.case_name, fields.case_number, fields.state, fields.county, fields.court, fields.judge, fields.guardian_ad_litem, fields.attorneys, fields.prosecutor, fields.evaluator, fields.document_title, fields.docket_entry_text, fields.filing_date, fields.notes, fields.tags, fields.verification_source, fields.status || 'new lead', attachment.storedPath, attachment.originalName || attachment.storedName];
+  const row = querySql(`INSERT INTO research_leads (${columns.join(',')}) VALUES (${values.map(q).join(',')}) RETURNING *;`)[0];
+  querySql(`INSERT INTO review_queue (item_type,item_id,status,notes) VALUES ('research_lead', ${Number(row.id)}, ${q(row.status)}, 'Manual/import lead requires review and official-source verification when possible.');`);
+  sendJson(response, 201, { lead: row });
+}
+
+async function handleCreateScannerJob(request, response) {
+  const body = await readJsonBody(request);
+  const now = new Date().toISOString();
+  const columns = ['created_at','updated_at','status','query','message','state','county','court','source_connector','keyword_group','custom_keywords','person_name','role','case_type','date_from','date_to','max_results'];
+  const query = [body.keyword_group, body.custom_keywords, body.person_name].filter(Boolean).join(' | ');
+  const values = [now, now, body.status || 'new result', query, 'Connector placeholder only; no uncontrolled scraping. Results must go to review first.', body.state, body.county, body.court, body.source_connector, body.keyword_group, body.custom_keywords, body.person_name, body.role, body.case_type, body.date_from, body.date_to, body.max_results || 25];
+  const row = querySql(`INSERT INTO scanner_jobs (${columns.join(',')}) VALUES (${values.map(q).join(',')}) RETURNING *;`)[0];
+  querySql(`INSERT INTO review_queue (item_type,item_id,status,notes) VALUES ('scanner_job', ${Number(row.id)}, 'pending', 'Scanner job placeholder created; no records become public automatically.');`);
+  sendJson(response, 201, { job: row });
 }
 
 async function handleCreateProfile(request, response) {

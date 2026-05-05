@@ -10,155 +10,19 @@
     <header class="siteHeader">
       <a class="brand" href="/">The Record Room AI</a>
       <nav class="topNav" aria-label="Primary navigation">
-        <a href="/upload">Local intake</a>
-        <a href="/submit">Public submission</a>
-        <a href="/search">Public search</a>
-        <a href="/admin">Admin dashboard</a>
-        <a href="/routes">Routes</a>
+        <a href="/admin">Admin Dashboard</a>
+        <a href="/upload">Local Upload</a>
+        <a href="/submit">Public Submit</a>
+        <a href="/review">Review Queue</a>
+        <a href="/documents">Documents</a>
+        <a href="/profiles">Profiles</a>
+        <a href="/leads">Research Leads</a>
+        <a href="/scanner">Scanner</a>
+        <a href="/search">Public Search</a>
+        <a href="/health">Health</a>
       </nav>
     </header>
-
-    <main id="top">
-      <section class="hero panel">
-        <div>
-          <p class="badge">Full-stack evidence intake</p>
-          <h1>Record Room AI</h1>
-          <p class="lede">Private admin document intake and public submissions with pending review, source labels, reliability tags, SQLite storage, and persistent local files.</p>
-          <div class="guardrails">
-            <span>Private by default</span>
-            <span>No public publication without approval</span>
-            <span>Source-bound summaries</span>
-            <span>SQLite + local file storage</span>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel modePanel">
-        <p class="eyebrow">Deployment modes</p>
-        <div class="grid two">
-          <div>
-            <h2>Local/private admin mode</h2>
-            <p>Run <code>node server.js</code> on your computer. Originals are stored under <code>./record-room-data/uploads</code>, extracted text under <code>./record-room-data/extracted-text</code>, and records in <code>./record-room-data/database.sqlite</code>.</p>
-            <p class="successText">Document saved to your local Record Room database.</p>
-          </div>
-          <div>
-            <h2>Public website mode</h2>
-            <p>Deploy the same app to a Node host such as Render or Railway. Public submissions stay pending and private until the protected admin dashboard approves publication.</p>
-            <p class="successText">Your submission has been received for review. Submission does not guarantee publication.</p>
-          </div>
-        </div>
-      </section>
-
-      <section class="grid two">
-        <form class="panel uploader" id="local-intake">
-          <p class="eyebrow">Private admin/desktop intake</p>
-          <h2>Upload documents from this computer</h2>
-          <p class="formIntro">Use this local/private workflow for your own document intake. Uploads are private by default and saved to the server-side Record Room database.</p>
-          <div class="grid two compactGrid">
-            <label>Your name<input name="uploader_name" required placeholder="Admin" /></label>
-            <label>Email<input name="uploader_email" type="email" placeholder="admin@example.com" /></label>
-          </div>
-          <label>Subject/person/entity name<input name="subject_name" required placeholder="Jane Doe" /></label>
-          <label>Role of subject<select name="subject_role" required data-role-select></select></label>
-          <div class="grid two compactGrid">
-            <label>Court<input name="court" placeholder="Superior Court" /></label>
-            <label>County<input name="county" placeholder="Fulton" /></label>
-            <label>State<input name="state" placeholder="GA" /></label>
-            <label>Case number<input name="case_number" placeholder="Optional" /></label>
-          </div>
-          <div class="grid two compactGrid">
-            <label>Document type<input name="document_type" placeholder="Order, transcript, complaint..." /></label>
-            <label>Source label<select name="source_label" data-source-label-select></select></label>
-          </div>
-          <label>Tags/allegation categories<input name="tags" placeholder="notice, due process, billing, custody" /></label>
-          <label>Admin notes<textarea name="notes" placeholder="Private handling notes"></textarea></label>
-          <label>Document file<input name="file" required type="file" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png" /></label>
-          <p class="formIntro">Accepted: PDF, DOCX, DOC, TXT, JPG, JPEG, PNG. Maximum size: 25 MB per file. Malware scanning is a placeholder until a scanner is connected.</p>
-          <button type="submit">Save to local Record Room database</button>
-          <p class="status" id="local-status"></p>
-        </form>
-
-        <form class="panel uploader" id="public-submit">
-          <p class="eyebrow">Public submission portal</p>
-          <h2>Submit a document for review</h2>
-          <p class="formIntro">Public uploads go into a pending review queue. Nothing is published unless an admin approves it and marks it public.</p>
-          <div class="grid two compactGrid">
-            <label>Uploader name<input name="uploader_name" required autocomplete="name" /></label>
-            <label>Uploader email<input name="uploader_email" required type="email" autocomplete="email" /></label>
-          </div>
-          <label>Your relationship<select name="uploader_role" required><option>party</option><option>attorney</option><option>witness</option><option>advocate</option><option>other</option></select></label>
-          <label>Subject/person/entity name<input name="subject_name" required /></label>
-          <label>Role of subject<select name="subject_role" required data-role-select></select></label>
-          <div class="grid two compactGrid">
-            <label>Court<input name="court" /></label>
-            <label>County<input name="county" /></label>
-            <label>State<input name="state" /></label>
-            <label>Case number, if known<input name="case_number" /></label>
-          </div>
-          <div class="grid two compactGrid">
-            <label>Document type<input name="document_type" required placeholder="Order, transcript, complaint..." /></label>
-            <label>Source type<input name="source_type" required placeholder="Court filing, news source, correspondence..." /></label>
-          </div>
-          <label>Short description<textarea name="description" required></textarea></label>
-          <label>Tags/allegation categories<input name="tags" placeholder="comma-separated" /></label>
-          <label>Record category<select name="record_category" required><option>public record</option><option>filed court document</option><option>order</option><option>transcript</option><option>complaint</option><option>correspondence</option><option>disciplinary record</option><option>news/public source</option><option>other</option></select></label>
-          <label>Source reliability label<select name="source_label" data-source-label-select></select></label>
-          <label>Document file<input name="file" required type="file" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png" /></label>
-
-          <fieldset class="warningBox">
-            <legend>Required submission warnings</legend>
-            <label><input name="warning_no_sealed" required type="checkbox" /> I understand that I should not upload sealed, confidential, protected, or unlawfully obtained documents.</label>
-            <label><input name="warning_no_guarantee" required type="checkbox" /> I understand that submission does not guarantee publication.</label>
-            <label><input name="warning_review_redact" required type="checkbox" /> I understand that documents may be reviewed, redacted, rejected, or kept private.</label>
-            <label><input name="warning_good_faith" required type="checkbox" /> I certify that I have a good-faith basis for submitting this material.</label>
-            <label><input name="warning_labels" required type="checkbox" /> I understand that The Record Room may label submissions as user-submitted, unverified, alleged, court-record-supported, official-record-supported, or rejected.</label>
-          </fieldset>
-          <button type="submit">Submit for review</button>
-          <p class="status" id="public-status"></p>
-        </form>
-      </section>
-
-      <section class="panel" id="public-search">
-        <p class="eyebrow">Public search safety</p>
-        <h2>Search approved public records only</h2>
-        <p class="formIntro">Public results only include documents that are both approved and marked public. Pending, rejected, private, admin-only, and redaction-needed documents are excluded.</p>
-        <form class="filterGrid" id="public-search-form">
-          <label>Keyword<input name="q" placeholder="name, tag, extracted text" /></label>
-          <label>Role<select name="role" data-role-select><option value="">Any role</option></select></label>
-          <label>County<input name="county" /></label>
-          <label>State<input name="state" /></label>
-          <label>Court<input name="court" /></label>
-          <label>Case number<input name="case_number" /></label>
-          <label>Source type<input name="source_type" /></label>
-          <label>Reliability label<select name="source_label" data-source-label-select><option value="">Any label</option></select></label>
-          <label>Allegation category<input name="allegation_category" /></label>
-          <button type="submit">Search approved public records</button>
-        </form>
-        <div id="public-results" class="cards"></div>
-      </section>
-
-      <section class="panel" id="admin-dashboard">
-        <p class="eyebrow">Admin-only dashboard</p>
-        <h2>Review queue and records</h2>
-        <p class="formIntro">Admin API protection uses an admin token in production. Local development opens in the browser without custom headers; the default local token is printed in the server console and can also be supplied with <code>/admin?token=local-dev-admin</code>.</p>
-        <div class="adminLogin">
-          <div class="localLoginNotice"><strong>Local-dev login:</strong> use <code>local-dev-admin</code> unless you set <code>RECORD_ROOM_ADMIN_TOKEN</code>. The frontend sends this token automatically for protected admin API calls.</div>
-          <label>Admin token<input id="admin-token" value="local-dev-admin" /></label>
-          <button id="load-admin" type="button">Load uploads</button>
-          <a class="buttonLink" id="export-csv" href="/api/admin/uploads/export.csv">Export CSV</a>
-        </div>
-        <form class="filterGrid" id="admin-filters">
-          <label>Status<select name="status"><option value="">All</option><option>pending</option><option>approved</option><option>rejected</option></select></label>
-          <label>Visibility<select name="visibility"><option value="">All</option><option>private</option><option>public</option><option>admin-only</option><option>needs redaction</option></select></label>
-          <label>Keyword<input name="q" placeholder="name, court, case, extracted text" /></label>
-          <label>Role<select name="role" data-role-select><option value="">Any role</option></select></label>
-          <label>County<input name="county" /></label>
-          <label>State<input name="state" /></label>
-          <button type="submit">Filter uploads</button>
-        </form>
-        <div id="admin-list" class="adminList"></div>
-      </section>
-    </main>
+    <main id="app"></main>
     <script type="module" src="/src/app.js"></script>
   </body>
 </html>
