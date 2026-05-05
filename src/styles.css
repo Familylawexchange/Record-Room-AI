@@ -748,3 +748,50 @@ input[type="radio"] {
 .adminDashboard .pathRow { display: grid; gap: 0.35rem; margin-top: 0.9rem; }
 .adminDashboard .pathValue { color: #253248; display: block; font-family: Consolas, ui-monospace, SFMono-Regular, monospace; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; white-space: normal; word-break: break-word; }
 .adminDashboard .quickLinks { display: flex; flex-wrap: wrap; gap: 10px; }
+
+.noticeText {
+  background: #f8f5ff;
+  border: 1px solid rgba(91, 42, 134, 0.2);
+  border-radius: 14px;
+  color: var(--navy);
+  font-weight: 700;
+  margin: 0.75rem 0 1rem;
+  padding: 0.8rem 0.9rem;
+}
+
+.missionReminder {
+  align-items: center;
+  background: linear-gradient(135deg, rgba(91, 42, 134, 0.08), rgba(20, 33, 61, 0.08));
+  border: 1px solid rgba(91, 42, 134, 0.2);
+  border-radius: 16px;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: auto 1fr;
+  margin: 0.5rem 0 1rem;
+  padding: 0.9rem;
+}
+.missionReminder p { color: var(--navy); font-weight: 600; margin: 0; }
+.missionVisual { align-items: center; display: grid; gap: 0.55rem; justify-items: center; }
+.robotGirlThumb {
+  align-items: center;
+  background: linear-gradient(135deg, var(--navy), var(--purple));
+  border: 2px solid rgba(255,255,255,0.75);
+  border-radius: 999px;
+  box-shadow: 0 8px 20px rgba(20, 33, 61, 0.24);
+  color: #fff;
+  display: inline-flex;
+  font-size: 1.4rem;
+  height: 58px;
+  justify-content: center;
+  width: 58px;
+}
+.fleLogoBadge {
+  background: #fff;
+  border: 1px solid rgba(20, 33, 61, 0.2);
+  border-radius: 999px;
+  color: var(--purple);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 0.22rem 0.5rem;
+}
