@@ -379,3 +379,23 @@ cite { color: var(--muted); display: block; font-style: normal; font-weight: 800
   .sectionHeader,
   .caseGroupHeader { align-items: stretch; flex-direction: column; }
 }
+
+.modePanel code { background: var(--lavender); border-radius: 0.45rem; padding: 0.12rem 0.35rem; }
+.successText { color: #17633a; font-weight: 900; }
+.errorText, .status.error { color: #9c1f1f; }
+.status.success { color: #17633a; font-weight: 900; }
+.status.info { color: var(--purple); font-weight: 800; }
+.warningBox { border: 1px solid rgba(156, 31, 31, 0.24); border-radius: 18px; display: grid; gap: 0.75rem; margin: 1rem 0; padding: 1rem; }
+.warningBox legend { color: #9c1f1f; font-weight: 900; padding: 0 0.4rem; }
+.warningBox label { align-items: start; display: grid; gap: 0.5rem; grid-template-columns: auto 1fr; font-weight: 700; }
+.filterGrid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.cards, .adminList { display: grid; gap: 1rem; margin-top: 1rem; }
+.recordCard, .adminCard { background: #fff; border: 1px solid var(--line); border-radius: 22px; padding: 1rem; }
+.adminCardHeader { align-items: start; display: flex; gap: 1rem; justify-content: space-between; }
+.adminActions { align-items: center; display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: flex-end; }
+.buttonLink { background: linear-gradient(135deg, var(--purple), #442067); border-radius: 999px; color: #fff; display: inline-block; font-weight: 800; padding: 0.75rem 1rem; text-decoration: none; }
+.pill { background: var(--lavender); border-radius: 999px; color: var(--navy); display: inline-block; font-size: 0.8rem; font-weight: 900; margin: 0.15rem; padding: 0.25rem 0.55rem; }
+.editGrid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin: 1rem 0; }
+.extractedText { background: #111827; border-radius: 16px; color: #f7fafc; max-height: 18rem; overflow: auto; padding: 1rem; white-space: pre-wrap; }
+.adminLogin { align-items: end; display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
+.empty { color: var(--muted); font-weight: 800; }

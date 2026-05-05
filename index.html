@@ -8,205 +8,153 @@
   </head>
   <body>
     <header class="siteHeader">
-      <a class="brand" href="#top" aria-label="The Family Law Exchange home">The Family Law Exchange™</a>
+      <a class="brand" href="#top">The Record Room AI</a>
       <nav class="topNav" aria-label="Primary navigation">
-        <a href="#topics">Topics</a>
-        <a href="#resources">Resources</a>
-        <a href="#states">States</a>
-        <a href="#upload-form">Record Room AI</a>
-        <a href="#about">About</a>
+        <a href="#local-intake">Local intake</a>
+        <a href="#public-submit">Public submission</a>
+        <a href="#public-search">Public search</a>
+        <a href="#admin-dashboard">Admin dashboard</a>
       </nav>
     </header>
 
     <main id="top">
       <section class="hero panel">
         <div>
-          <p class="badge">Documented Evidence Intake</p>
+          <p class="badge">Full-stack evidence intake</p>
           <h1>Record Room AI</h1>
-          <p class="lede">
-            Submit documented evidence for court-document review, pattern analysis, and citation-backed reports.
-          </p>
+          <p class="lede">Private admin document intake and public submissions with pending review, source labels, reliability tags, SQLite storage, and persistent local files.</p>
           <div class="guardrails">
-            <span>📚 Uploaded documents only</span>
-            <span>📄 Page-level citations</span>
-            <span>⚖️ Human review required</span>
-            <span>🧑‍⚖️ Unified actor tracking</span>
+            <span>Private by default</span>
+            <span>No public publication without approval</span>
+            <span>Source-bound summaries</span>
+            <span>SQLite + local file storage</span>
           </div>
         </div>
       </section>
 
-      <section class="ctaPanel" aria-labelledby="submit-records-heading">
-        <p class="eyebrow">Private local intake preview</p>
-        <h2 id="submit-records-heading">Submit Your Records</h2>
-        <p>Upload official records and supporting documents for extraction, review preparation, and source-bound reporting.</p>
+      <section class="panel modePanel">
+        <p class="eyebrow">Deployment modes</p>
+        <div class="grid two">
+          <div>
+            <h2>Local/private admin mode</h2>
+            <p>Run <code>node server.js</code> on your computer. Originals are stored under <code>/record-room-data/uploads</code>, extracted text under <code>/record-room-data/extracted-text</code>, and records in <code>/record-room-data/database.sqlite</code>.</p>
+            <p class="successText">Document saved to your local Record Room database.</p>
+          </div>
+          <div>
+            <h2>Public website mode</h2>
+            <p>Deploy the same app to a Node host such as Render or Railway. Public submissions stay pending and private until the protected admin dashboard approves publication.</p>
+            <p class="successText">Your submission has been received for review. Submission does not guarantee publication.</p>
+          </div>
+        </div>
       </section>
 
       <section class="grid two">
-        <form class="panel uploader" id="upload-form">
-          <h2>No-account document upload</h2>
-          <p class="formIntro">Submitter details are saved with the upload metadata. No login or full authentication is enabled yet.</p>
-
-          <aside class="beforeUpload" aria-labelledby="before-upload-heading">
-            <h3 id="before-upload-heading">Before You Upload</h3>
-            <ul>
-              <li>Upload only official records or documents you have permission to submit.</li>
-              <li>The app reviews uploaded documents only.</li>
-              <li>The app does not make final legal conclusions.</li>
-              <li>AI findings must be reviewed by a human.</li>
-              <li>Remove sensitive information if you do not want it analyzed.</li>
-            </ul>
-          </aside>
-
+        <form class="panel uploader" id="local-intake">
+          <p class="eyebrow">Private admin/desktop intake</p>
+          <h2>Upload documents from this computer</h2>
+          <p class="formIntro">Use this local/private workflow for your own document intake. Uploads are private by default and saved to the server-side Record Room database.</p>
           <div class="grid two compactGrid">
-            <label>
-              Your name
-              <input id="submitter-name" autocomplete="name" required placeholder="Jane Doe" />
-            </label>
-            <label>
-              Email
-              <input id="submitter-email" autocomplete="email" required type="email" placeholder="jane@example.com" />
-            </label>
+            <label>Your name<input name="uploader_name" required placeholder="Admin" /></label>
+            <label>Email<input name="uploader_email" type="email" placeholder="admin@example.com" /></label>
           </div>
-
-          <label>
-            Case / project name
-            <input id="case-name" required placeholder="Smith v. Smith records" />
-          </label>
-
-          <label>
-            Document type
-            <select id="document-type" required>
-              <option>Transcript</option>
-              <option>Order</option>
-              <option>Motion</option>
-              <option>Exhibit</option>
-              <option>Official Record</option>
-              <option>Correspondence</option>
-              <option>Other</option>
-            </select>
-          </label>
-
-          <label>
-            Optional notes
-            <textarea id="notes" placeholder="Add context, source location, production batch, or handling notes."></textarea>
-          </label>
-
-          <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-controls="file-input" aria-describedby="file-help selected-file-list upload-error">
-            <span class="dropIcon" aria-hidden="true">⇧</span>
-            <strong>Drag and drop documents here</strong>
-            <span id="file-help">Accepted: PDF, DOCX, DOC, TXT, JPG, JPEG, PNG. Maximum size: 25 MB per file.</span>
-            <button class="chooseButton" id="choose-documents" type="button">Choose Documents</button>
-            <input id="file-input" multiple required type="file" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png" />
+          <label>Subject/person/entity name<input name="subject_name" required placeholder="Jane Doe" /></label>
+          <label>Role of subject<select name="subject_role" required data-role-select></select></label>
+          <div class="grid two compactGrid">
+            <label>Court<input name="court" placeholder="Superior Court" /></label>
+            <label>County<input name="county" placeholder="Fulton" /></label>
+            <label>State<input name="state" placeholder="GA" /></label>
+            <label>Case number<input name="case_number" placeholder="Optional" /></label>
           </div>
-
-          <div class="selectedFiles" aria-live="polite">
-            <div class="uploadState"><strong>Upload status:</strong> <span id="upload-status">waiting for files</span></div>
-            <ul id="selected-file-list"><li>No files selected yet.</li></ul>
-            <p class="status errorText" id="upload-error"></p>
+          <div class="grid two compactGrid">
+            <label>Document type<input name="document_type" placeholder="Order, transcript, complaint..." /></label>
+            <label>Source label<select name="source_label" data-source-label-select></select></label>
           </div>
-
-          <div class="progressWrap" aria-live="polite">
-            <progress id="upload-progress" value="0" max="100"></progress>
-            <span id="progress-label">Waiting for files.</span>
-          </div>
-          <p class="status" id="status">Upload court records to begin an evidence-bound review.</p>
-          <button id="submit-documents" type="submit" disabled>Submit Documents</button>
+          <label>Tags/allegation categories<input name="tags" placeholder="notice, due process, billing, custody" /></label>
+          <label>Admin notes<textarea name="notes" placeholder="Private handling notes"></textarea></label>
+          <label>Document file<input name="file" required type="file" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png" /></label>
+          <p class="formIntro">Accepted: PDF, DOCX, DOC, TXT, JPG, JPEG, PNG. Maximum size: 25 MB per file. Malware scanning is a placeholder until a scanner is connected.</p>
+          <button type="submit">Save to local Record Room database</button>
+          <p class="status" id="local-status"></p>
         </form>
 
-        <div class="panel sourcePanel">
-          <h2>Source boundary</h2>
-          <ul class="checks">
-            <li>The app treats uploaded files as the complete evidentiary universe.</li>
-            <li>Every generated finding includes a quote and document/page reference when text is extractable.</li>
-            <li>Actor-based results are labeled as fact patterns for attorney review.</li>
-            <li>Unified profiles cover judges, GALs, attorneys, prosecutors, clerks, DFCS/CPS workers, court staff, and other officials.</li>
-            <li>Identity matching never relies on last name alone; uncertain identities stay separate and are labeled for human review.</li>
-            <li>Local-only storage uses this browser's IndexedDB to simulate private storage; the Node server only receives extracted text when OpenAI analysis is requested.</li>
-            <li>TXT, DOCX, and embedded PDF text extraction run locally; DOC, scanned PDFs, and images keep a clear local OCR/parser placeholder until a private worker/backend is connected.</li>
-            <li>OpenAI analysis uses <code>OPENAI_API_KEY</code> on the local server and requires citations with document name, page when available, and quoted source text.</li>
-          </ul>
-        </div>
-      </section>
-
-      <section class="panel adminPanel">
-        <div class="sectionHeader">
-          <div>
-            <p class="eyebrow">Admin preview · no authentication yet</p>
-            <h2>Document list grouped by case / project</h2>
+        <form class="panel uploader" id="public-submit">
+          <p class="eyebrow">Public submission portal</p>
+          <h2>Submit a document for review</h2>
+          <p class="formIntro">Public uploads go into a pending review queue. Nothing is published unless an admin approves it and marks it public.</p>
+          <div class="grid two compactGrid">
+            <label>Uploader name<input name="uploader_name" required autocomplete="name" /></label>
+            <label>Uploader email<input name="uploader_email" required type="email" autocomplete="email" /></label>
           </div>
-          <button id="clear-local" class="secondary" type="button">Clear local demo data</button>
-        </div>
-        <div class="adminList" id="admin-list"></div>
-      </section>
-
-      <section class="panel">
-        <div class="sectionHeader">
-          <h2>Analysis shell cases</h2>
-          <select id="case-select"><option>No uploads yet</option></select>
-        </div>
-        <div class="documents" id="documents"></div>
-      </section>
-
-      <section class="panel aiPanel">
-        <div class="sectionHeader">
-          <div>
-            <p class="eyebrow">OpenAI pattern-analysis layer</p>
-            <h2>Ask questions about uploaded case documents</h2>
+          <label>Your relationship<select name="uploader_role" required><option>party</option><option>attorney</option><option>witness</option><option>advocate</option><option>other</option></select></label>
+          <label>Subject/person/entity name<input name="subject_name" required /></label>
+          <label>Role of subject<select name="subject_role" required data-role-select></select></label>
+          <div class="grid two compactGrid">
+            <label>Court<input name="court" /></label>
+            <label>County<input name="county" /></label>
+            <label>State<input name="state" /></label>
+            <label>Case number, if known<input name="case_number" /></label>
           </div>
-        </div>
-        <p class="formIntro">Choose a preset or ask a custom question. The request uses extracted document text as source material and instructs OpenAI to distinguish facts from possible legal issues, cite quoted source text, and avoid unsupported conclusions.</p>
-        <div class="presetGrid" id="ai-preset-buttons"></div>
-        <label class="aiQuestionLabel">
-          Custom question for this case
-          <textarea id="ai-question" placeholder="Example: What facts in the uploaded documents may show a notice problem, and what follow-up questions should a human reviewer ask?"></textarea>
-        </label>
-        <div class="aiActions">
-          <button id="ai-run-custom" type="button">Run custom OpenAI analysis</button>
-          <p class="status" id="ai-status">Set OPENAI_API_KEY on the local Node server, upload documents, then choose a preset or ask a question.</p>
-        </div>
-        <div class="aiReportOutput" id="ai-report-output">
-          <p class="empty">AI report output will appear here with headings, findings, citations, and suggested human review questions.</p>
-        </div>
+          <div class="grid two compactGrid">
+            <label>Document type<input name="document_type" required placeholder="Order, transcript, complaint..." /></label>
+            <label>Source type<input name="source_type" required placeholder="Court filing, news source, correspondence..." /></label>
+          </div>
+          <label>Short description<textarea name="description" required></textarea></label>
+          <label>Tags/allegation categories<input name="tags" placeholder="comma-separated" /></label>
+          <label>Record category<select name="record_category" required><option>public record</option><option>filed court document</option><option>order</option><option>transcript</option><option>complaint</option><option>correspondence</option><option>disciplinary record</option><option>news/public source</option><option>other</option></select></label>
+          <label>Source reliability label<select name="source_label" data-source-label-select></select></label>
+          <label>Document file<input name="file" required type="file" accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png" /></label>
+
+          <fieldset class="warningBox">
+            <legend>Required submission warnings</legend>
+            <label><input name="warning_no_sealed" required type="checkbox" /> I understand that I should not upload sealed, confidential, protected, or unlawfully obtained documents.</label>
+            <label><input name="warning_no_guarantee" required type="checkbox" /> I understand that submission does not guarantee publication.</label>
+            <label><input name="warning_review_redact" required type="checkbox" /> I understand that documents may be reviewed, redacted, rejected, or kept private.</label>
+            <label><input name="warning_good_faith" required type="checkbox" /> I certify that I have a good-faith basis for submitting this material.</label>
+            <label><input name="warning_labels" required type="checkbox" /> I understand that The Record Room may label submissions as user-submitted, unverified, alleged, court-record-supported, official-record-supported, or rejected.</label>
+          </fieldset>
+          <button type="submit">Submit for review</button>
+          <p class="status" id="public-status"></p>
+        </form>
       </section>
 
-      <section class="panel report">
-        <div class="sectionHeader">
-          <h2>Citation-backed case report</h2>
-          <button id="export-report" type="button">Export JSON report</button>
-        </div>
-        <p class="boundary" id="boundary"></p>
-        <div class="grid three stats">
-          <div><strong id="document-count">0</strong><span>Documents</span></div>
-          <div><strong id="timeline-count">0</strong><span>Timeline events</span></div>
-          <div><strong id="pattern-count">0</strong><span>Repeated patterns</span></div>
-          <div><strong id="actor-count">0</strong><span>Actor profiles</span></div>
-          <div><strong id="motion-count">0</strong><span>Motion/order rows</span></div>
-        </div>
+      <section class="panel" id="public-search">
+        <p class="eyebrow">Public search safety</p>
+        <h2>Search approved public records only</h2>
+        <p class="formIntro">Public results only include documents that are both approved and marked public. Pending, rejected, private, admin-only, and redaction-needed documents are excluded.</p>
+        <form class="filterGrid" id="public-search-form">
+          <label>Keyword<input name="q" placeholder="name, tag, extracted text" /></label>
+          <label>Role<select name="role" data-role-select><option value="">Any role</option></select></label>
+          <label>County<input name="county" /></label>
+          <label>State<input name="state" /></label>
+          <label>Court<input name="court" /></label>
+          <label>Case number<input name="case_number" /></label>
+          <label>Source type<input name="source_type" /></label>
+          <label>Reliability label<select name="source_label" data-source-label-select><option value="">Any label</option></select></label>
+          <label>Allegation category<input name="allegation_category" /></label>
+          <button type="submit">Search approved public records</button>
+        </form>
+        <div id="public-results" class="cards"></div>
+      </section>
 
-        <details class="filterPanel" open>
-          <summary>Actor Tracking & Conduct Analysis filters</summary>
-          <div class="filterGrid">
-            <label>Actor name<input id="actor-name-filter" placeholder="Name in uploaded documents" /></label>
-            <label>Actor type<select id="actor-type-filter"><option value="">Any actor type</option><option>Judge</option><option>GAL</option><option>Attorney</option><option>Prosecutor</option><option>Clerk</option><option>DFCS/CPS Worker</option><option>Court Staff</option><option>Court Official</option><option>Agency Official</option><option>Other Official</option></select></label>
-            <label>Role represented/served<input id="role-served-filter" placeholder="court, agency, child, party..." /></label>
-            <label>Party represented<input id="party-filter" placeholder="mother, father, state, child..." /></label>
-            <label>Prosecutor office<input id="prosecutor-office-filter" placeholder="DA, solicitor, state attorney..." /></label>
-            <label>Court<input id="court-filter" placeholder="Court name" /></label>
-            <label>County<input id="county-filter" placeholder="County" /></label>
-            <label>State<input id="state-filter" placeholder="State" /></label>
-            <label>Case number<input id="case-number-filter" placeholder="Case/docket number" /></label>
-            <label>Document type<select id="document-type-filter"><option value="">Any document type</option><option>Transcript</option><option>Order</option><option>Motion</option><option>Exhibit</option><option>Official Record</option><option>Correspondence</option><option>Other</option></select></label>
-            <label>Date from<input id="start-date-filter" type="date" /></label>
-            <label>Date to<input id="end-date-filter" type="date" /></label>
-            <label>Issue type<select id="issue-type-filter"><option value="">Any issue type</option><option>due process</option><option>notice/service</option><option>ex parte</option><option>retaliation</option><option>custody restriction</option><option>visitation/supervision</option><option>GAL conduct</option><option>prosecutorial conduct</option><option>probation/treatment court</option><option>sanctions/fees</option><option>jurisdiction/UCCJEA</option><option>sealing/protective orders</option><option>discovery</option><option>contempt</option><option>emergency relief</option><option>judicial recusal/disqualification</option><option>other</option></select></label>
-            <label>Minimum confidence<select id="confidence-filter"><option value="">Any confidence</option><option>Possible match — needs human review</option><option>Medium</option><option>High</option></select></label>
-          </div>
-        </details>
-        <div class="placeholderGrid">
-          <div class="placeholderBox"><strong>Local extraction status</strong><span>TXT, DOCX, and embedded PDF text are parsed in the browser. DOC, scanned PDFs, and JPG/PNG files show an OCR/parser placeholder until a local Tesseract worker or private backend is connected.</span></div>
-          <div class="placeholderBox"><strong>OpenAI pattern analysis</strong><span>When OPENAI_API_KEY is set, the AI panel sends extracted page text, document names, page/source locators, and the unified actor-analysis request to the local proxy and requires citation-backed findings.</span></div>
+      <section class="panel" id="admin-dashboard">
+        <p class="eyebrow">Admin-only dashboard</p>
+        <h2>Review queue and records</h2>
+        <p class="formIntro">Admin protection is currently a placeholder using an <code>X-Admin-Token</code>. Set <code>RECORD_ROOM_ADMIN_TOKEN</code> before any public deployment and replace this with real authentication.</p>
+        <div class="adminLogin">
+          <label>Admin token<input id="admin-token" value="local-dev-admin" /></label>
+          <button id="load-admin" type="button">Load uploads</button>
+          <a class="buttonLink" id="export-csv" href="/api/admin/uploads/export.csv">Export CSV</a>
         </div>
-        <div id="report-output"></div>
+        <form class="filterGrid" id="admin-filters">
+          <label>Status<select name="status"><option value="">All</option><option>pending</option><option>approved</option><option>rejected</option></select></label>
+          <label>Visibility<select name="visibility"><option value="">All</option><option>private</option><option>public</option><option>admin-only</option><option>needs redaction</option></select></label>
+          <label>Keyword<input name="q" placeholder="name, court, case, extracted text" /></label>
+          <label>Role<select name="role" data-role-select><option value="">Any role</option></select></label>
+          <label>County<input name="county" /></label>
+          <label>State<input name="state" /></label>
+          <button type="submit">Filter uploads</button>
+        </form>
+        <div id="admin-list" class="adminList"></div>
       </section>
     </main>
     <script type="module" src="/src/app.js"></script>
