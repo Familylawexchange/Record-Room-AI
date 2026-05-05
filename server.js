@@ -802,7 +802,7 @@ async function handleAskIndexedDocuments(request, response) {
   console.log(`[documents/ask] documents found: ${docs.length}`);
   if (!docs.length) return sendJson(response, 400, { error: 'No indexed documents yet. Upload files and wait for "Indexed for AI" status.' });
 
-  const chunks = [];
+  const allChunks = [];
   for (const doc of docs) {
     let text = String(doc.extracted_text || '').trim();
     if (!text && doc.extracted_text_path) {
@@ -810,19 +810,23 @@ async function handleAskIndexedDocuments(request, response) {
     }
     if (!text) continue;
     const chunkSize = 1800;
-    for (let i = 0; i < text.length && chunks.length < 24; i += chunkSize) {
+    for (let i = 0; i < text.length; i += chunkSize) {
       const chunkText = text.slice(i, i + chunkSize).trim();
       if (!chunkText) continue;
-      chunks.push({
+      allChunks.push({
         documentId: doc.id,
         filename: doc.original_filename,
         chunkIndex: Math.floor(i / chunkSize) + 1,
         text: chunkText,
       });
     }
-    if (chunks.length >= 24) break;
   }
+  const chunks = selectChunksForQuestion(question, allChunks);
   console.log(`[documents/ask] chunks retrieved: ${chunks.length}`);
+  console.log(`[documents/ask] documents used: ${Array.from(new Set(chunks.map((chunk) => `${chunk.documentId}:${chunk.filename}`))).join(', ')}`);
+  for (const chunk of chunks) {
+    console.log(`[documents/ask] chunk d${chunk.documentId}#${chunk.chunkIndex} preview: ${chunk.text.slice(0, 200).replace(/\s+/g, ' ')}`);
+  }
   if (!chunks.length) {
     return sendJson(response, 200, {
       answer: 'No indexed text chunks were found for the selected documents. Re-process extraction or upload a text-readable document.',
@@ -838,7 +842,7 @@ async function handleAskIndexedDocuments(request, response) {
     const result = await client.responses.create({
       model: OPENAI_MODEL,
       input: [
-        { role: 'system', content: 'Answer ONLY using the provided indexed document excerpts. If the answer is not present, say you could not find it in indexed documents.' },
+        { role: 'system', content: `You are a legal document analysis system.\n\nYou MUST answer using ONLY the provided context.\n\nDO NOT say 'I could not find the information' unless the information is clearly not present.\n\nFor transcripts:\n- Names of judges, defendants, and parties are usually near the beginning\n- If names appear, extract them exactly as written\n\nIf asked:\n- 'who is the judge' → return the judge’s name\n- 'who is the defendant' → return the defendant’s name\n- 'what was happening in court' → summarize the hearing\n\nIf partially found:\n- Return what you DO see in the text\n\nBe direct, do not hedge, do not over-refuse.` },
         { role: 'user', content: `Question: ${question}\n\nIndexed document excerpts:\n${context}` },
       ],
       max_output_tokens: 800,
@@ -850,6 +854,70 @@ async function handleAskIndexedDocuments(request, response) {
     console.error('[documents/ask] OpenAI API error:', error);
     return sendJson(response, error.status || 500, { error: error.message || 'The OpenAI API request failed.' });
   }
+}
+
+function selectChunksForQuestion(question, chunks) {
+  if (!chunks.length) return [];
+  const normalizedQuestion = String(question || '').toLowerCase();
+  const semanticTerms = new Set(normalizedQuestion.match(/[a-z0-9]+/g) || []);
+  const keywordTerms = ['judge', 'court', 'defendant', 'petitioner', 'respondent', 'case', 'hearing', 'transcript', 'state', 'vs', 'docket'];
+  const requiredFirstChunksByDoc = new Map();
+  const scored = [];
+
+  for (const chunk of chunks) {
+    if (chunk.chunkIndex <= 5) {
+      if (!requiredFirstChunksByDoc.has(chunk.documentId)) requiredFirstChunksByDoc.set(chunk.documentId, []);
+      const list = requiredFirstChunksByDoc.get(chunk.documentId);
+      if (list.length < 5) list.push(chunk);
+    }
+
+    const text = chunk.text.toLowerCase();
+    let semanticScore = 0;
+    for (const term of semanticTerms) {
+      if (term.length > 2 && text.includes(term)) semanticScore += 2;
+    }
+    let keywordScore = 0;
+    for (const keyword of keywordTerms) {
+      if (text.includes(keyword)) keywordScore += 3;
+    }
+    scored.push({ chunk, score: semanticScore + keywordScore + (chunk.chunkIndex <= 5 ? 4 : 0) });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  const selected = [];
+  const seen = new Set();
+
+  for (const [, firstChunks] of requiredFirstChunksByDoc) {
+    for (const chunk of firstChunks.slice(0, 5)) {
+      const key = `${chunk.documentId}:${chunk.chunkIndex}`;
+      if (!seen.has(key)) {
+        selected.push(chunk);
+        seen.add(key);
+      }
+    }
+  }
+
+  for (const item of scored) {
+    if (selected.length >= 20) break;
+    const key = `${item.chunk.documentId}:${item.chunk.chunkIndex}`;
+    if (!seen.has(key)) {
+      selected.push(item.chunk);
+      seen.add(key);
+    }
+  }
+
+  if (selected.length < 10) {
+    for (const item of scored) {
+      const key = `${item.chunk.documentId}:${item.chunk.chunkIndex}`;
+      if (!seen.has(key)) {
+        selected.push(item.chunk);
+        seen.add(key);
+      }
+      if (selected.length >= 10) break;
+    }
+  }
+
+  return selected.slice(0, 20);
 }
 
 async function parseMultipart(request) {
