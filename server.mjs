@@ -4,6 +4,9 @@ import dotenv from "dotenv";
 import OpenAI from "openai";
 import multer from "multer";
 import { createRequire } from "module";
+import { mkdir, writeFile } from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 
 const require = createRequire(import.meta.url);
@@ -13,10 +16,34 @@ dotenv.config();
 
 const app = express();
 const PORT = 3001;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const localUploadDir = path.join(__dirname, "uploads");
 
 app.use(cors());
 app.use(express.json());
 
+const getEnv = (...keys) => keys.find((key) => process.env[key]) ? process.env[keys.find((key) => process.env[key])] : undefined;
+
+const r2Config = {
+  accountId: getEnv("CLOUDFLARE_R2_ACCOUNT_ID", "R2_ACCOUNT_ID"),
+  bucket: getEnv("CLOUDFLARE_R2_BUCKET", "R2_BUCKET"),
+  accessKeyId: getEnv("CLOUDFLARE_R2_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
+  secretAccessKey: getEnv("CLOUDFLARE_R2_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY"),
+};
+
+const isR2Configured = () =>
+  Boolean(r2Config.accountId && r2Config.bucket && r2Config.accessKeyId && r2Config.secretAccessKey);
+
+const createR2Client = () =>
+  new S3Client({
+    region: "auto",
+    endpoint: `https://${r2Config.accountId}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: r2Config.accessKeyId,
+      secretAccessKey: r2Config.secretAccessKey,
+    },
+  });
 
 app.get("/api/health", (req, res) => {
   res.json({
@@ -28,21 +55,16 @@ app.get("/api/health", (req, res) => {
 });
 
 app.get("/api/storage/status", (req, res) => {
-  const r2Configured = Boolean(
-    process.env.CLOUDFLARE_R2_ACCOUNT_ID &&
-      process.env.CLOUDFLARE_R2_BUCKET &&
-      process.env.CLOUDFLARE_R2_ACCESS_KEY_ID &&
-      process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY
-  );
+  const r2Configured = isR2Configured();
 
   res.json({
     ok: true,
     r2Configured,
     storageProvider: r2Configured ? "cloudflare-r2" : "local",
-    bucket: process.env.CLOUDFLARE_R2_BUCKET || null,
-    hasAccountId: Boolean(process.env.CLOUDFLARE_R2_ACCOUNT_ID),
-    hasAccessKey: Boolean(process.env.CLOUDFLARE_R2_ACCESS_KEY_ID),
-    hasSecretKey: Boolean(process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY),
+    bucket: r2Config.bucket || null,
+    hasAccountId: Boolean(r2Config.accountId),
+    hasAccessKey: Boolean(r2Config.accessKeyId),
+    hasSecretKey: Boolean(r2Config.secretAccessKey),
     hasPublicUrl: Boolean(process.env.CLOUDFLARE_R2_PUBLIC_URL),
     hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
   });
@@ -56,14 +78,30 @@ const client = new OpenAI({
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-const r2 = new S3Client({
-  region: "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  },
-});
+const storeFile = async (fileName, file) => {
+  if (isR2Configured()) {
+    try {
+      const r2 = createR2Client();
+      await r2.send(
+        new PutObjectCommand({
+          Bucket: r2Config.bucket,
+          Key: fileName,
+          Body: file.buffer,
+          ContentType: file.mimetype,
+        })
+      );
+      console.log(`[upload] R2 upload success for ${fileName}`);
+      return "cloudflare-r2";
+    } catch (error) {
+      console.error(`[upload] R2 upload failed for ${fileName}:`, error);
+      throw error;
+    }
+  }
+
+  await mkdir(localUploadDir, { recursive: true });
+  await writeFile(path.join(localUploadDir, fileName), file.buffer);
+  return "local";
+};
 
 app.get("/", (req, res) => {
   res.send(`
@@ -136,26 +174,50 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     }
 
     const fileName = `${Date.now()}-${req.file.originalname}`;
-
-    await r2.send(
-      new PutObjectCommand({
-        Bucket: process.env.R2_BUCKET,
-        Key: fileName,
-        Body: req.file.buffer,
-        ContentType: req.file.mimetype,
-      })
-    );
+    const storageProvider = await storeFile(fileName, req.file);
 
     lastUploadedFileName = fileName;
 
     res.json({
       success: true,
-      message: "File uploaded to Cloudflare R2 and selected",
+      message: "File uploaded and selected",
       fileName,
+      storageProvider,
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/submissions/public", upload.single("file"), async (req, res) => {
+  console.log("[submissions] POST /api/submissions/public hit");
+  try {
+    const { name, email, caseState, description } = req.body || {};
+    const hasFile = Boolean(req.file);
+    console.log(`[submissions] file received: ${hasFile}`);
+
+    if (!hasFile || !name || !email || !caseState || !description) {
+      return res.status(400).json({ ok: false, error: "Upload failed. Please try again." });
+    }
+
+    const fileName = `${Date.now()}-${req.file.originalname}`;
+    const storageProvider = await storeFile(fileName, req.file);
+    console.log(`[submissions] storageProvider: ${storageProvider}`);
+
+    const documentId = `doc_${Date.now()}`;
+
+    return res.json({
+      ok: true,
+      message:
+        "Thank you. Your document has been submitted for review. Submissions are private/pending by default and will not become public automatically.",
+      storageProvider,
+      fileName,
+      documentId,
+    });
+  } catch (error) {
+    console.error("[submissions] R2 success/failure: failed", error);
+    return res.status(500).json({ ok: false, error: "Upload failed. Please try again." });
   }
 });
 
@@ -169,9 +231,14 @@ app.post("/chat", async (req, res) => {
       });
     }
 
+    if (!isR2Configured()) {
+      return res.status(400).json({ error: "R2 is required for chat document retrieval in this environment" });
+    }
+
+    const r2 = createR2Client();
     const file = await r2.send(
       new GetObjectCommand({
-        Bucket: process.env.R2_BUCKET,
+        Bucket: r2Config.bucket,
         Key: lastUploadedFileName,
       })
     );
