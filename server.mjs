@@ -17,6 +17,37 @@ const PORT = 3001;
 app.use(cors());
 app.use(express.json());
 
+
+app.get("/api/health", (req, res) => {
+  res.json({
+    ok: true,
+    status: "healthy",
+    service: "record-room-ai-backend",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get("/api/storage/status", (req, res) => {
+  const r2Configured = Boolean(
+    process.env.CLOUDFLARE_R2_ACCOUNT_ID &&
+      process.env.CLOUDFLARE_R2_BUCKET &&
+      process.env.CLOUDFLARE_R2_ACCESS_KEY_ID &&
+      process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY
+  );
+
+  res.json({
+    ok: true,
+    r2Configured,
+    storageProvider: r2Configured ? "cloudflare-r2" : "local",
+    bucket: process.env.CLOUDFLARE_R2_BUCKET || null,
+    hasAccountId: Boolean(process.env.CLOUDFLARE_R2_ACCOUNT_ID),
+    hasAccessKey: Boolean(process.env.CLOUDFLARE_R2_ACCESS_KEY_ID),
+    hasSecretKey: Boolean(process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY),
+    hasPublicUrl: Boolean(process.env.CLOUDFLARE_R2_PUBLIC_URL),
+    hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
+  });
+});
+
 let lastUploadedFileName = "";
 
 const client = new OpenAI({
