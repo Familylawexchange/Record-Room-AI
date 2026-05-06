@@ -172,6 +172,21 @@ const storage = {
   },
 };
 
+const ALLOWED_ORIGINS = new Set([
+  'https://record-room-ai-frontend.onrender.com',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:4173',
+]);
+
+function applyCors(request, response) {
+  const origin = request.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) response.setHeader('Access-Control-Allow-Origin', origin);
+  response.setHeader('Vary', 'Origin');
+  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-Admin-Token');
+}
+
 const server = http.createServer(async (request, response) => {
   try {
     await ensureReady();
@@ -180,6 +195,8 @@ const server = http.createServer(async (request, response) => {
     if (url.pathname === '/routes' && request.method === 'GET') return handleRoutesPage(response);
     if (url.pathname === '/setup' && (request.method === 'GET' || request.method === 'POST')) return handleSetup(response);
     if (url.pathname.startsWith('/api/')) {
+      applyCors(request, response);
+      if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
       await routeApi(request, response, url);
       return;
     }
@@ -579,18 +596,24 @@ async function handleUpload(request, response, intakeMode) {
   console.log(`[upload/route] hit ${request.method} ${request.url} intakeMode=${intakeMode}`);
   try {
   const parsed = await parseMultipart(request);
-  const file = uploadFieldNames.map((name) => parsed.files[name]).find(Boolean);
-  if (!file) return sendJson(response, 400, { ok: false, error: 'Upload failed. Please try again.' });
+  const fileField = uploadFieldNames.find((name) => Boolean(parsed.files[name]));
+  const file = fileField ? parsed.files[fileField] : null;
+  console.log(`[upload/request] origin=${request.headers.origin || 'n/a'} fileField=${fileField || 'none'} storageProvider=${hasR2Config() ? 'cloudflare-r2' : 'local'}`);
+  if (!file) {
+    console.log('[upload/request] file missing');
+    return sendJson(response, 400, { ok: false, error: 'No file uploaded. Accepted field names: file, document, documents.' });
+  }
   const validation = validateUploadedFile(file);
-  if (validation) return sendJson(response, 400, { ok: false, error: 'Upload failed. Please try again.' });
+  if (validation) return sendJson(response, 400, { ok: false, error: validation });
   if (intakeMode === 'public_submission') {
     const missingWarning = ['warning_no_sealed', 'warning_no_guarantee', 'warning_review_redact', 'warning_good_faith', 'warning_labels'].find((field) => parsed.fields[field] !== 'on' && parsed.fields[field] !== 'true');
-    if (missingWarning) return sendJson(response, 400, { ok: false, error: 'Upload failed. Please try again.' });
+    if (missingWarning) return sendJson(response, 400, { ok: false, error: 'Please acknowledge all submission warnings before uploading.' });
   }
 
   const now = new Date().toISOString();
   const extension = path.extname(file.filename).toLowerCase();
   const saved = await storage.saveOriginal({ data: file.data, extension, contentType: file.contentType });
+  console.log(`[upload/request] file received name=${file.filename} size=${file.data.length} storageProvider=${saved.storageProvider}`);
   const extraction = await extractText(file, extension);
   const documentHash = crypto.createHash('sha256').update(file.data).digest('hex');
   const textHash = extraction.text ? crypto.createHash('sha256').update(extraction.text).digest('hex') : null;
@@ -625,11 +648,13 @@ async function handleUpload(request, response, intakeMode) {
     aiReviewMessage: aiReview.aiReviewMessage,
     document: publicSafeDocument(updatedWithAi, true),
   };
+  console.log('[upload/r2] success or local save complete');
   console.log('[upload/response] success payload:', JSON.stringify(successPayload));
   sendJson(response, 201, successPayload);
   } catch (error) {
     console.error('[upload/error]', error);
-    const failurePayload = { ok: false, error: 'Upload failed. Please try again.' };
+    console.error('[upload/r2] failure or upstream processing error');
+    const failurePayload = { ok: false, error: error.message || 'Upload failed. Please try again.' };
     console.log('[upload/response] failure payload:', JSON.stringify(failurePayload));
     return sendJson(response, error.status || 500, failurePayload);
   }
@@ -1173,6 +1198,7 @@ async function serveStatic(pathname, response) {
 }
 
 function sendJson(response, status, payload) {
+  applyCors({ headers: { origin: response.req?.headers?.origin } }, response);
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   response.end(JSON.stringify(payload));
 }
