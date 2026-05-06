@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { URL } = require('node:url');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { ANALYSIS_MODEL, classifyDocument, analyzeLegalDocument } = require('./lib/aiAnalysis');
 
 const PORT = Number(process.env.PORT || 5173);
 const ROOT = __dirname;
@@ -23,7 +24,6 @@ const MAX_BODY_BYTES = MAX_FILE_BYTES + 1024 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 30;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5-mini';
 let openAiClientPromise;
 
 const R2_CONFIG = {
@@ -614,6 +614,7 @@ async function handleUpload(request, response, intakeMode) {
   const extension = path.extname(file.filename).toLowerCase();
   const saved = await storage.saveOriginal({ data: file.data, extension, contentType: file.contentType });
   console.log(`[upload/request] file received name=${file.filename} size=${file.data.length} storageProvider=${saved.storageProvider}`);
+  console.log('[upload/parse] started');
   const extraction = await extractText(file, extension);
   const documentHash = crypto.createHash('sha256').update(file.data).digest('hex');
   const textHash = extraction.text ? crypto.createHash('sha256').update(extraction.text).digest('hex') : null;
@@ -621,6 +622,12 @@ async function handleUpload(request, response, intakeMode) {
   const visibility = intakeMode === 'local_admin' ? 'private' : 'private';
   const sourceLabel = normalizeChoice(parsed.fields.source_label || parsed.fields.source_type, sourceLabels, intakeMode === 'public_submission' ? 'user-submitted document' : 'unknown source');
   const reliability = normalizeTags(parsed.fields.reliability_tags || (intakeMode === 'public_submission' ? 'user-submitted,needs admin review,unverified allegation' : 'needs admin review'), reliabilityTags);
+
+  const existingByHash = documentHash ? querySql(`SELECT * FROM documents WHERE document_hash=${q(documentHash)} ORDER BY id DESC LIMIT 1;`)[0] : null;
+  if (existingByHash?.ai_summary_json) {
+    console.log(`[ai-analysis] skip re-analysis documentId=${existingByHash.id} reason=existing-hash`);
+    return sendJson(response, 200, { ok: true, message: 'Duplicate file hash detected. Existing analysis reused.', storageProvider: saved.storageProvider, documentId: String(existingByHash.id), extractionStatus: existingByHash.extraction_status, aiReviewStatus: existingByHash.ai_review_status, document: publicSafeDocument(existingByHash, true) });
+  }
 
   const insert = querySql(`
     INSERT INTO documents (${[
@@ -630,7 +637,7 @@ async function handleUpload(request, response, intakeMode) {
     ].join(',')}) RETURNING *;
   `)[0];
   const textPath = await storage.saveExtractedText(insert.id, extraction.text);
-  const updated = querySql(`UPDATE documents SET extracted_text_path=${q(textPath)}, document_hash=${q(documentHash)}, text_hash=${q(textHash)}, document_title=${q(parsed.fields.document_title || parsed.fields.document_type || file.filename)}, source_name=${q(parsed.fields.source_name || parsed.fields.source_type)} WHERE id=${Number(insert.id)} RETURNING *;`)[0];
+  const updated = querySql(`UPDATE documents SET ai_review_status='processing', ai_review_message='AI analysis queued.', extracted_text_path=${q(textPath)}, document_hash=${q(documentHash)}, text_hash=${q(textHash)}, document_title=${q(parsed.fields.document_title || parsed.fields.document_type || file.filename)}, source_name=${q(parsed.fields.source_name || parsed.fields.source_type)} WHERE id=${Number(insert.id)} RETURNING *;`)[0];
   querySql(`INSERT INTO extracted_text (document_id, text_path, text_content, extraction_status, extraction_message) VALUES (${Number(insert.id)}, ${q(textPath)}, ${q(extraction.text)}, ${q(extraction.status)}, ${q(extraction.message)}) ON CONFLICT(document_id) DO UPDATE SET updated_at=CURRENT_TIMESTAMP, text_path=excluded.text_path, text_content=excluded.text_content, extraction_status=excluded.extraction_status, extraction_message=excluded.extraction_message;`);
   const aiReview = await generateAiReviewSummary(updated);
   const updatedWithAi = querySql(`UPDATE documents SET ai_summary_json=${q(aiReview.aiSummaryJson || '')}, ai_review_status=${q(aiReview.aiReviewStatus)}, ai_review_message=${q(aiReview.aiReviewMessage)}, updated_at=${q(new Date().toISOString())} WHERE id=${Number(insert.id)} RETURNING *;`)[0];
@@ -846,12 +853,12 @@ async function handleAnalyze(request, response) {
   try {
     const client = await getOpenAiClient();
     const result = await client.responses.create({
-      model: OPENAI_MODEL,
+      model: ANALYSIS_MODEL,
       instructions: 'Create a source-bound Record Room summary. Separate verified official information, court-record-supported information, user-submitted allegations, unresolved/conflicting information, self-promotional sources, and marketing/review-based sources. Every claim must cite a supplied document id/source record.',
       input: JSON.stringify(payload),
       max_output_tokens: 1800,
     });
-    sendJson(response, 200, { analysis: result.output_text || extractResponseText(result), model: result.model || OPENAI_MODEL, responseId: result.id });
+    sendJson(response, 200, { analysis: result.output_text || extractResponseText(result), model: result.model || ANALYSIS_MODEL, responseId: result.id });
   } catch (error) {
     console.error('[analyze] OpenAI API error:', error);
     return sendJson(response, error.status || 500, { error: error.message || 'The OpenAI API request failed.' });
@@ -877,7 +884,7 @@ async function generateAiReviewSummary(doc) {
     const openai = await getOpenAiClient();
     const prompt = `Review this uploaded legal document and return strict JSON with keys: summary, key_entities, key_dates, potential_issues, confidence.\n\nDocument filename: ${doc.original_filename}\n\nDocument text:\n${text.slice(0, 22000)}`;
     const result = await openai.responses.create({
-      model: OPENAI_MODEL,
+      model: ANALYSIS_MODEL,
       input: prompt,
       max_output_tokens: 800,
     });
@@ -893,13 +900,13 @@ function mapDocumentFlowStatus(row) {
   const uploadStatusLabel = row.review_status === 'rejected' ? 'Failed' : 'Uploaded';
   let aiIndexingStatusLabel = 'Processing';
   if (row.extraction_status === 'failed') aiIndexingStatusLabel = 'Extraction failed';
-  else if (row.extraction_status === 'processed' && row.ai_review_status === 'processed') aiIndexingStatusLabel = 'Indexed + AI reviewed';
+  else if (row.extraction_status === 'processed' && row.ai_review_status === 'completed') aiIndexingStatusLabel = 'Indexed + AI reviewed';
   else if (row.extraction_status === 'processed') aiIndexingStatusLabel = 'Indexed for AI';
   return { ...publicSafeDocument(row, true), uploadStatusLabel, aiIndexingStatusLabel, flowMessage: row.ai_review_message || row.extraction_message || '' };
 }
 
 function handleDocumentsFlow(response) {
-  const rows = querySql(`SELECT id, created_at, original_filename, file_size, review_status, extraction_status, extraction_message, ai_review_status, ai_review_message FROM documents ORDER BY created_at DESC LIMIT 500;`);
+  const rows = querySql(`SELECT id, created_at, original_filename, file_size, review_status, extraction_status, extraction_message, ai_review_status, ai_review_message, document_type, court, state, county, ai_summary_json FROM documents ORDER BY created_at DESC LIMIT 500;`);
   sendJson(response, 200, { uploadDirectory: UPLOAD_DIR, documents: rows.map(mapDocumentFlowStatus) });
 }
 
@@ -959,7 +966,7 @@ async function handleAskIndexedDocuments(request, response) {
   try {
     const client = await getOpenAiClient();
     const result = await client.responses.create({
-      model: OPENAI_MODEL,
+      model: ANALYSIS_MODEL,
       input: [
         { role: 'system', content: `You are a legal document analysis system.\n\nYou MUST answer using ONLY the provided context.\n\nDO NOT say 'I could not find the information' unless the information is clearly not present.\n\nFor transcripts:\n- Names of judges, defendants, and parties are usually near the beginning\n- If names appear, extract them exactly as written\n\nIf asked:\n- 'who is the judge' → return the judge’s name\n- 'who is the defendant' → return the defendant’s name\n- 'what was happening in court' → summarize the hearing\n\nIf partially found:\n- Return what you DO see in the text\n\nBe direct, do not hedge, do not over-refuse.` },
         { role: 'user', content: `Question: ${question}\n\nIndexed document excerpts:\n${context}` },
