@@ -77,6 +77,23 @@ const client = new OpenAI({
 });
 
 const upload = multer({ storage: multer.memoryStorage() });
+const uploadPublicSubmission = (req, res, next) => {
+  upload.single("file")(req, res, (fileErr) => {
+    if (!fileErr) return next();
+
+    const isUnexpectedFileField =
+      fileErr instanceof multer.MulterError &&
+      fileErr.code === "LIMIT_UNEXPECTED_FILE" &&
+      fileErr.field === "document";
+
+    if (!isUnexpectedFileField) return next(fileErr);
+
+    upload.single("document")(req, res, (documentErr) => {
+      if (documentErr) return next(documentErr);
+      return next();
+    });
+  });
+};
 
 const storeFile = async (fileName, file) => {
   if (isR2Configured()) {
@@ -190,12 +207,30 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   }
 });
 
-app.post("/api/submissions/public", upload.single("file"), async (req, res) => {
-  console.log("[submissions] POST /api/submissions/public hit");
+app.get("/api/submissions/public/status", (req, res) => {
+  return res.json({
+    ok: true,
+    routeExists: true,
+    accepts: ["multipart/form-data"],
+    fileFields: ["file", "document"],
+  });
+});
+
+app.post('/api/submissions/public', upload.single('file'), async (req, res) => {
+  console.log("POST /api/submissions/public hit");
   try {
+    await new Promise((resolve, reject) => {
+      uploadPublicSubmission(req, res, (uploadErr) => {
+        if (uploadErr) reject(uploadErr);
+        else resolve();
+      });
+    });
+
     const { name, email, caseState, description } = req.body || {};
+    console.log("[submissions] req.body:", req.body || {});
     const hasFile = Boolean(req.file);
-    console.log(`[submissions] file received: ${hasFile}`);
+    console.log("[submissions] req.file exists:", hasFile);
+    console.log("[submissions] file originalname:", req.file?.originalname || null);
 
     if (!hasFile || !name || !email || !caseState || !description) {
       return res.status(400).json({ ok: false, error: "Upload failed. Please try again." });
@@ -203,7 +238,8 @@ app.post("/api/submissions/public", upload.single("file"), async (req, res) => {
 
     const fileName = `${Date.now()}-${req.file.originalname}`;
     const storageProvider = await storeFile(fileName, req.file);
-    console.log(`[submissions] storageProvider: ${storageProvider}`);
+    console.log("[submissions] storageProvider:", storageProvider);
+    console.log("[submissions] R2 upload success/failure: success");
 
     const documentId = `doc_${Date.now()}`;
 
@@ -216,8 +252,8 @@ app.post("/api/submissions/public", upload.single("file"), async (req, res) => {
       documentId,
     });
   } catch (error) {
-    console.error("[submissions] R2 success/failure: failed", error);
-    return res.status(500).json({ ok: false, error: "Upload failed. Please try again." });
+    console.error("[submissions] R2 upload success/failure: failure", error);
+    return res.status(500).json({ ok: false, error: "Upload failed. Please try again.", details: error.message });
   }
 });
 
