@@ -17,14 +17,24 @@ const keywordGroups = {
   'Appeals / Reversals': ['reversed', 'vacated', 'remanded', 'abuse of discretion', 'due process', 'fundamental fairness', 'recusal denied', 'GAL report', 'custody', 'divorce', 'family court', 'domestic relations'],
 };
 let config = { sourceLabels: [], reliabilityTags: [], professionalRoles: roles, localDevAdminToken: null, isProduction: false };
-const app = document.querySelector('#app');
+let app;
 
-bootstrap();
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+} else {
+  bootstrap();
+}
 
 async function bootstrap() {
+  app = document.querySelector('#app');
+  if (!app) return;
   hydrateDirectVisitFromQuery();
   wireNavigation();
-  config = await api('/api/config');
+  try {
+    config = await api('/api/config');
+  } catch (error) {
+    console.warn('[bootstrap] Failed to load /api/config, using fallback config.', error);
+  }
   if (!config.professionalRoles?.length) config.professionalRoles = roles;
   if (!config.sourceLabels?.length) config.sourceLabels = ['official court source', 'user-submitted document', 'Trellis Law research lead', 'unknown source'];
   renderRoute();
