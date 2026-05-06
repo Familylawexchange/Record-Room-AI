@@ -7,6 +7,7 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { URL } = require('node:url');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 
 const PORT = Number(process.env.PORT || 5173);
 const ROOT = __dirname;
@@ -24,6 +25,32 @@ const RATE_LIMIT_MAX = 30;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5-mini';
 let openAiClientPromise;
+
+const R2_CONFIG = {
+  accountId: process.env.CLOUDFLARE_R2_ACCOUNT_ID || '',
+  accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || '',
+  secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || '',
+  bucket: process.env.CLOUDFLARE_R2_BUCKET || '',
+  publicUrl: process.env.CLOUDFLARE_R2_PUBLIC_URL || '',
+};
+
+function hasR2Config() {
+  return Boolean(R2_CONFIG.accountId && R2_CONFIG.accessKeyId && R2_CONFIG.secretAccessKey && R2_CONFIG.bucket);
+}
+
+let r2Client;
+function getR2Client() {
+  if (!hasR2Config()) return null;
+  if (!r2Client) {
+    r2Client = new S3Client({
+      region: 'auto',
+      endpoint: `https://${R2_CONFIG.accountId}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId: R2_CONFIG.accessKeyId, secretAccessKey: R2_CONFIG.secretAccessKey },
+    });
+  }
+  return r2Client;
+}
+
 
 async function getOpenAiClient() {
   if (!openAiClientPromise) {
@@ -114,11 +141,28 @@ const API_ROUTES = [
 
 const storage = {
   async saveOriginal(upload) {
-    await fs.mkdir(UPLOAD_DIR, { recursive: true });
     const storedName = `${Date.now()}-${crypto.randomUUID()}${upload.extension}`;
+    const r2Enabled = hasR2Config();
+    console.log(`[upload/storage] R2 env detected: ${r2Enabled}`);
+    if (r2Enabled) {
+      const client = getR2Client();
+      const key = `uploads/${storedName}`;
+      await client.send(new PutObjectCommand({
+        Bucket: R2_CONFIG.bucket,
+        Key: key,
+        Body: upload.data,
+        ContentType: upload.contentType || 'application/octet-stream',
+      }));
+      const publicBase = R2_CONFIG.publicUrl ? R2_CONFIG.publicUrl.replace(/\/$/, '') : `https://${R2_CONFIG.bucket}.${R2_CONFIG.accountId}.r2.cloudflarestorage.com`;
+      const storedPath = `${publicBase}/${key}`;
+      console.log(`[upload/storage] Saved to cloudflare-r2 key=${key}`);
+      return { storedName, storedPath, storageProvider: 'cloudflare-r2' };
+    }
+    await fs.mkdir(UPLOAD_DIR, { recursive: true });
     const storedPath = path.join(UPLOAD_DIR, storedName);
     await fs.writeFile(storedPath, upload.data);
-    return { storedName, storedPath };
+    console.log(`[upload/storage] Saved to local path=${storedPath}`);
+    return { storedName, storedPath, storageProvider: 'local' };
   },
   async saveExtractedText(documentId, text) {
     await fs.mkdir(TEXT_DIR, { recursive: true });
@@ -532,19 +576,21 @@ async function routeApi(request, response, url) {
 }
 
 async function handleUpload(request, response, intakeMode) {
+  console.log(`[upload/route] hit ${request.method} ${request.url} intakeMode=${intakeMode}`);
+  try {
   const parsed = await parseMultipart(request);
   const file = uploadFieldNames.map((name) => parsed.files[name]).find(Boolean);
-  if (!file) return sendJson(response, 400, { error: 'A document file is required.' });
+  if (!file) return sendJson(response, 400, { ok: false, error: 'Upload failed. Please try again.' });
   const validation = validateUploadedFile(file);
-  if (validation) return sendJson(response, 400, { error: validation });
+  if (validation) return sendJson(response, 400, { ok: false, error: 'Upload failed. Please try again.' });
   if (intakeMode === 'public_submission') {
     const missingWarning = ['warning_no_sealed', 'warning_no_guarantee', 'warning_review_redact', 'warning_good_faith', 'warning_labels'].find((field) => parsed.fields[field] !== 'on' && parsed.fields[field] !== 'true');
-    if (missingWarning) return sendJson(response, 400, { error: 'All public submission warnings must be checked before submission.' });
+    if (missingWarning) return sendJson(response, 400, { ok: false, error: 'Upload failed. Please try again.' });
   }
 
   const now = new Date().toISOString();
   const extension = path.extname(file.filename).toLowerCase();
-  const saved = await storage.saveOriginal({ data: file.data, extension });
+  const saved = await storage.saveOriginal({ data: file.data, extension, contentType: file.contentType });
   const extraction = await extractText(file, extension);
   const documentHash = crypto.createHash('sha256').update(file.data).digest('hex');
   const textHash = extraction.text ? crypto.createHash('sha256').update(extraction.text).digest('hex') : null;
@@ -567,7 +613,26 @@ async function handleUpload(request, response, intakeMode) {
   const updatedWithAi = querySql(`UPDATE documents SET ai_summary_json=${q(aiReview.aiSummaryJson || '')}, ai_review_status=${q(aiReview.aiReviewStatus)}, ai_review_message=${q(aiReview.aiReviewMessage)}, updated_at=${q(new Date().toISOString())} WHERE id=${Number(insert.id)} RETURNING *;`)[0];
   querySql(`INSERT INTO review_queue (item_type,item_id,status,notes) VALUES ('document', ${Number(insert.id)}, ${q(intakeMode === 'public_submission' ? 'pending' : 'private intake')}, ${q(intakeMode === 'public_submission' ? 'Public submission pending/private by default.' : 'Local private/admin-only intake.')});`);
   querySql(`INSERT INTO search_index (item_type,item_id,title,body,source_label,reliability_tags) VALUES ('document', ${Number(insert.id)}, ${q(updatedWithAi.document_title || updatedWithAi.original_filename)}, ${q([updatedWithAi.description, extraction.text, aiReview.aiSummaryJson].filter(Boolean).join('\n'))}, ${q(updatedWithAi.source_label)}, ${q(updatedWithAi.reliability_tags)});`);
-  sendJson(response, 201, { message: intakeMode === 'local_admin' ? 'Document saved to your local Record Room database.' : 'Your submission has been received for review. Submission does not guarantee publication.', extractionStatus: extraction.status, extractionMessage: extraction.message, aiReviewStatus: aiReview.aiReviewStatus, aiReviewMessage: aiReview.aiReviewMessage, document: publicSafeDocument(updatedWithAi, true) });
+  const successPayload = {
+    ok: true,
+    message: 'Thank you. Your document has been submitted for review.',
+    storageProvider: saved.storageProvider,
+    fileName: file.filename,
+    documentId: String(insert.id),
+    extractionStatus: extraction.status,
+    extractionMessage: extraction.message,
+    aiReviewStatus: aiReview.aiReviewStatus,
+    aiReviewMessage: aiReview.aiReviewMessage,
+    document: publicSafeDocument(updatedWithAi, true),
+  };
+  console.log('[upload/response] success payload:', JSON.stringify(successPayload));
+  sendJson(response, 201, successPayload);
+  } catch (error) {
+    console.error('[upload/error]', error);
+    const failurePayload = { ok: false, error: 'Upload failed. Please try again.' };
+    console.log('[upload/response] failure payload:', JSON.stringify(failurePayload));
+    return sendJson(response, error.status || 500, failurePayload);
+  }
 }
 
 function validateUploadedFile(file) {
