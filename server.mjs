@@ -9,6 +9,7 @@ import { createReadStream } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import JSZip from "jszip";
 
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
@@ -165,6 +166,7 @@ const extractUploadedText = async (file) => {
   const filename = String(file?.originalname || "").toLowerCase();
   const isPdf = mime.includes("pdf") || filename.endsWith(".pdf");
   const isTxt = mime.startsWith("text/") || filename.endsWith(".txt");
+  const isDocx = mime.includes("officedocument.wordprocessingml.document") || filename.endsWith(".docx");
 
   if (isTxt) {
     const text = Buffer.from(file.buffer).toString("utf8").trim();
@@ -189,6 +191,32 @@ const extractUploadedText = async (file) => {
         return { text: fallback, status: "processed", message: "Best-effort embedded PDF text extracted; OCR may still be required." };
       }
       return { text: "", status: "failed", message: `PDF parse failed: ${error.message}` };
+    }
+  }
+
+  if (isDocx) {
+    try {
+      const zip = await JSZip.loadAsync(file.buffer);
+      const documentXml = await zip.file("word/document.xml")?.async("string");
+      if (!documentXml) {
+        return { text: "", status: "failed", message: "DOCX parse failed: word/document.xml not found." };
+      }
+      const text = documentXml
+        .replace(/<w:tab\/>/g, "\t")
+        .replace(/<w:br\/>/g, "\n")
+        .replace(/<\/w:p>/g, "\n")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, "\"")
+        .replace(/&apos;/g, "'")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+      if (text) return { text: text.slice(0, 500_000), status: "processed", message: "DOCX text extracted." };
+      return { text: "", status: "pending", message: "DOCX parsed but no readable text was found." };
+    } catch (error) {
+      return { text: "", status: "failed", message: `DOCX parse failed: ${error.message}` };
     }
   }
 
