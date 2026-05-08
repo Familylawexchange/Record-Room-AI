@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import multer from "multer";
 import { createRequire } from "module";
 import { mkdir, writeFile } from "fs/promises";
+import { createReadStream } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
@@ -90,6 +91,8 @@ app.get("/api/storage/status", (req, res) => {
 });
 
 let lastUploadedFileName = "";
+const uploadRecords = [];
+let uploadRecordId = 1;
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -137,6 +140,44 @@ const storeFile = async (fileName, file) => {
   await mkdir(localUploadDir, { recursive: true });
   await writeFile(path.join(localUploadDir, fileName), file.buffer);
   return "local";
+};
+
+const toPublicFilePath = (fileName, storageProvider) => {
+  if (storageProvider === "cloudflare-r2") {
+    const base = process.env.CLOUDFLARE_R2_PUBLIC_URL
+      ? process.env.CLOUDFLARE_R2_PUBLIC_URL.replace(/\/$/, "")
+      : `https://${r2Config.bucket}.${r2Config.accountId}.r2.cloudflarestorage.com`;
+    return `${base}/${fileName}`;
+  }
+  return path.join(localUploadDir, fileName);
+};
+
+const pushUploadRecord = ({ fileName, storageProvider, originalFilename, mimeType, fileSize, intakeMode, subjectName = "", documentType = "", sourceType = "" }) => {
+  const now = new Date().toISOString();
+  const record = {
+    id: uploadRecordId++,
+    created_at: now,
+    updated_at: now,
+    intake_mode: intakeMode,
+    review_status: intakeMode === "public_submission" ? "pending" : "private intake",
+    visibility: "private",
+    redaction_status: "not_requested",
+    extraction_status: "pending",
+    extraction_message: "Extraction is handled by the full server pipeline.",
+    original_filename: originalFilename,
+    document_title: documentType || originalFilename,
+    document_type: documentType,
+    source_type: sourceType,
+    source_label: sourceType || "user-submitted document",
+    subject_name: subjectName,
+    mime_type: mimeType || "application/octet-stream",
+    file_size: Number(fileSize || 0),
+    file_path: toPublicFilePath(fileName, storageProvider),
+    storage_provider: storageProvider,
+    extracted_text: "",
+  };
+  uploadRecords.unshift(record);
+  return record;
 };
 
 app.get("/", (req, res) => {
@@ -214,6 +255,18 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 
     lastUploadedFileName = fileName;
 
+    pushUploadRecord({
+      fileName,
+      storageProvider,
+      originalFilename: req.file.originalname,
+      mimeType: req.file.mimetype,
+      fileSize: req.file.size,
+      intakeMode: "local_admin",
+      documentType: req.body?.document_type || "",
+      sourceType: req.body?.source_type || "",
+      subjectName: req.body?.subject_name || "",
+    });
+
     res.json({
       success: true,
       message: "File uploaded and selected",
@@ -257,6 +310,17 @@ app.post('/api/submissions/public', upload.single('file'), async (req, res) => {
 
     const fileName = `${Date.now()}-${req.file.originalname}`;
     const storageProvider = await storeFile(fileName, req.file);
+    pushUploadRecord({
+      fileName,
+      storageProvider,
+      originalFilename: req.file.originalname,
+      mimeType: req.file.mimetype,
+      fileSize: req.file.size,
+      intakeMode: "public_submission",
+      documentType: req.body?.document_type || "public submission",
+      sourceType: "user-submitted document",
+      subjectName: req.body?.subject_name || req.body?.name || "",
+    });
     console.log("[submissions] storageProvider:", storageProvider);
     console.log("[submissions] R2 upload success/failure: success");
 
@@ -296,13 +360,24 @@ app.post("/api/uploads/local", async (req, res) => {
     const fileName = `${Date.now()}-${req.file.originalname}`;
     const storageProvider = await storeFile(fileName, req.file);
     lastUploadedFileName = fileName;
+    const record = pushUploadRecord({
+      fileName,
+      storageProvider,
+      originalFilename: req.file.originalname,
+      mimeType: req.file.mimetype,
+      fileSize: req.file.size,
+      intakeMode: "local_admin",
+      documentType: req.body?.document_type || "",
+      sourceType: req.body?.source_type || "user-submitted document",
+      subjectName: req.body?.subject_name || "",
+    });
 
     return res.json({
       ok: true,
       message: "Thank you. Your document has been submitted for review.",
       storageProvider,
       fileName,
-      documentId: `doc_${Date.now()}`,
+      documentId: String(record.id),
       extractionStatus: "pending",
       extractionMessage: "Extraction is handled by the full server pipeline.",
       aiReviewStatus: process.env.OPENAI_API_KEY ? "pending" : "skipped",
@@ -313,6 +388,60 @@ app.post("/api/uploads/local", async (req, res) => {
   } catch (error) {
     console.error("[uploads/local] upload failed", error);
     return res.status(500).json({ ok: false, error: "Upload failed. Please try again.", details: error.message });
+  }
+});
+
+app.get("/api/admin/uploads", (req, res) => {
+  const status = String(req.query.status || "").trim().toLowerCase();
+  const q = String(req.query.q || "").trim().toLowerCase();
+  let records = [...uploadRecords];
+  if (status) records = records.filter((r) => String(r.review_status || "").toLowerCase().includes(status));
+  if (q) {
+    records = records.filter((r) => (
+      `${r.original_filename} ${r.document_title} ${r.subject_name} ${r.source_type} ${r.document_type}`.toLowerCase().includes(q)
+    ));
+  }
+  return res.json({ documents: records });
+});
+
+app.patch("/api/admin/uploads/:id", express.json(), (req, res) => {
+  const id = Number(req.params.id);
+  const record = uploadRecords.find((r) => r.id === id);
+  if (!record) return res.status(404).json({ error: "Upload not found." });
+  const allowed = ["review_status", "visibility", "redaction_status", "subject_name", "subject_role", "court", "county", "state", "case_number", "document_type", "source_type", "source_label", "reliability_tags", "record_category", "description", "tags", "notes", "admin_notes", "public_summary", "ai_summary_json"];
+  for (const key of allowed) if (Object.hasOwn(req.body || {}, key)) record[key] = req.body[key];
+  record.updated_at = new Date().toISOString();
+  return res.json({ document: record });
+});
+
+app.get("/api/admin/uploads/:id/text", (req, res) => {
+  const id = Number(req.params.id);
+  const record = uploadRecords.find((r) => r.id === id);
+  if (!record) return res.status(404).json({ error: "Upload not found." });
+  return res.json({
+    text: record.extracted_text || "",
+    extractionStatus: record.extraction_status || "pending",
+    extractionMessage: record.extraction_message || "No extracted text is available in this lightweight deployment.",
+  });
+});
+
+app.get("/api/admin/uploads/:id/download", async (req, res) => {
+  const id = Number(req.params.id);
+  const record = uploadRecords.find((r) => r.id === id);
+  if (!record) return res.status(404).json({ error: "Upload not found." });
+  res.setHeader("Content-Type", record.mime_type || "application/octet-stream");
+  res.setHeader("Content-Disposition", `attachment; filename="${String(record.original_filename).replace(/"/g, "")}"`);
+  try {
+    if (record.storage_provider === "cloudflare-r2") {
+      const r2 = createR2Client();
+      const file = await r2.send(new GetObjectCommand({ Bucket: r2Config.bucket, Key: record.file_path.split(".com/").pop() }));
+      if (!file.Body || typeof file.Body.pipe !== "function") throw new Error("Cloud object stream missing");
+      file.Body.pipe(res);
+      return;
+    }
+    createReadStream(record.file_path).pipe(res);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
   }
 });
 
