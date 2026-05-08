@@ -434,7 +434,19 @@ app.get("/api/admin/uploads/:id/download", async (req, res) => {
   try {
     if (record.storage_provider === "cloudflare-r2") {
       const r2 = createR2Client();
-      const file = await r2.send(new GetObjectCommand({ Bucket: r2Config.bucket, Key: record.file_path.split(".com/").pop() }));
+      const extractR2Key = (storedPath) => {
+        if (!storedPath) return "";
+        // Direct key already stored.
+        if (!storedPath.startsWith("http://") && !storedPath.startsWith("https://")) return storedPath.replace(/^\/+/, "");
+        try {
+          const parsed = new URL(storedPath);
+          return decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+        } catch {
+          return storedPath;
+        }
+      };
+      const objectKey = extractR2Key(record.file_path);
+      const file = await r2.send(new GetObjectCommand({ Bucket: r2Config.bucket, Key: objectKey }));
       if (!file.Body || typeof file.Body.pipe !== "function") throw new Error("Cloud object stream missing");
       file.Body.pipe(res);
       return;
