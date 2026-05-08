@@ -640,6 +640,132 @@ button {
   gap: 0.6rem;
 }
 
+.reviewPage .formIntro {
+  margin-bottom: 0.8rem;
+}
+
+.reviewTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+}
+
+.reviewTab {
+  background: rgba(91, 42, 134, 0.08);
+  border: 1px solid rgba(91, 42, 134, 0.2);
+  border-radius: 999px;
+  box-shadow: none;
+  color: var(--navy);
+  font-weight: 800;
+  min-height: 2.35rem;
+  padding: 0.45rem 0.9rem;
+  width: auto;
+}
+
+.reviewTab.active {
+  background: linear-gradient(135deg, var(--purple), #442067);
+  border-color: transparent;
+  color: var(--white);
+}
+
+.reviewTab:hover:not(:disabled) {
+  box-shadow: none;
+  transform: none;
+}
+
+.reviewFilters {
+  align-items: end;
+  background: rgba(91, 42, 134, 0.06);
+  border: 1px solid rgba(91, 42, 134, 0.14);
+  border-radius: 16px;
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: minmax(170px, 210px) minmax(230px, 1fr) minmax(160px, 200px) minmax(140px, 170px) minmax(110px, 130px);
+  margin-top: 0.9rem;
+  padding: 0.9rem;
+}
+
+.buttonSecondary {
+  background: transparent;
+  border: 1px solid rgba(20, 33, 61, 0.22);
+  box-shadow: none;
+  color: var(--navy);
+}
+
+.buttonSecondary:hover:not(:disabled) {
+  background: rgba(91, 42, 134, 0.08);
+  box-shadow: none;
+  transform: none;
+}
+
+.reviewMeta {
+  margin-top: 0.8rem;
+}
+
+.reviewActions {
+  border-top: 1px dashed rgba(20, 33, 61, 0.18);
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+}
+
+.reviewList {
+  margin-top: 0.9rem;
+}
+
+.reviewCard .adminCardHeader h3 {
+  margin-bottom: 0.35rem;
+}
+
+.reviewCardPills {
+  margin: 0;
+}
+
+.reviewCardFacts {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 0.5rem 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  margin-top: 0.9rem;
+  padding: 0.85rem;
+}
+
+.reviewFact {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.reviewFact span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.reviewFact strong {
+  color: var(--navy);
+  font-size: 0.95rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.reviewEditDetails {
+  margin-top: 0.9rem;
+}
+
+.reviewEditDetails > summary {
+  color: var(--purple);
+  cursor: pointer;
+  font-weight: 800;
+  margin-bottom: 0.8rem;
+}
+
+.reviewEditDetails[open] > summary {
+  margin-bottom: 1rem;
+}
+
 .warningBanner,
 .beforeUpload,
 .filterPanel,
@@ -676,6 +802,10 @@ button {
   .editGrid.form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .reviewFilters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 620px) {
@@ -700,6 +830,10 @@ button {
   .grid.three.form-grid,
   .editGrid.form-grid,
   .placeholderGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .reviewFilters {
     grid-template-columns: 1fr;
   }
 
