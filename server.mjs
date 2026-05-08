@@ -152,8 +152,52 @@ const toPublicFilePath = (fileName, storageProvider) => {
   return path.join(localUploadDir, fileName);
 };
 
-const pushUploadRecord = ({ fileName, storageProvider, originalFilename, mimeType, fileSize, intakeMode, subjectName = "", documentType = "", sourceType = "" }) => {
+const extractPdfLikeText = (buffer) => {
+  return buffer.toString("latin1")
+    .replace(/\r/g, "\n")
+    .match(/[\x09\x0A\x0D\x20-\x7E]{8,}/g)?.join("\n")
+    .replace(/\s{2,}/g, " ")
+    .slice(0, 500_000) || "";
+};
+
+const extractUploadedText = async (file) => {
+  const mime = String(file?.mimetype || "").toLowerCase();
+  const filename = String(file?.originalname || "").toLowerCase();
+  const isPdf = mime.includes("pdf") || filename.endsWith(".pdf");
+  const isTxt = mime.startsWith("text/") || filename.endsWith(".txt");
+
+  if (isTxt) {
+    const text = Buffer.from(file.buffer).toString("utf8").trim();
+    return {
+      text,
+      status: text ? "processed" : "pending",
+      message: text ? "Plain text extracted." : "No text content found in TXT file.",
+    };
+  }
+
+  if (isPdf) {
+    try {
+      const parsed = await pdfParse(file.buffer);
+      const text = String(parsed?.text || "").replace(/\u0000/g, "").trim();
+      if (text.length > 0) {
+        return { text: text.slice(0, 500_000), status: "processed", message: "PDF text extracted with pdf-parse." };
+      }
+      return { text: "", status: "pending", message: "No embedded PDF text found; OCR may be required." };
+    } catch (error) {
+      const fallback = extractPdfLikeText(file.buffer).trim();
+      if (fallback.length > 40) {
+        return { text: fallback, status: "processed", message: "Best-effort embedded PDF text extracted; OCR may still be required." };
+      }
+      return { text: "", status: "failed", message: `PDF parse failed: ${error.message}` };
+    }
+  }
+
+  return { text: "", status: "pending", message: "Text extraction not implemented for this file type." };
+};
+
+const pushUploadRecord = ({ fileName, storageProvider, originalFilename, mimeType, fileSize, intakeMode, subjectName = "", documentType = "", sourceType = "", extraction = null }) => {
   const now = new Date().toISOString();
+  const extractedText = extraction?.text || "";
   const record = {
     id: uploadRecordId++,
     created_at: now,
@@ -162,8 +206,8 @@ const pushUploadRecord = ({ fileName, storageProvider, originalFilename, mimeTyp
     review_status: intakeMode === "public_submission" ? "pending" : "private intake",
     visibility: "private",
     redaction_status: "not_requested",
-    extraction_status: "pending",
-    extraction_message: "Extraction is handled by the full server pipeline.",
+    extraction_status: extraction?.status || "pending",
+    extraction_message: extraction?.message || "Extraction is handled by the full server pipeline.",
     original_filename: originalFilename,
     document_title: documentType || originalFilename,
     document_type: documentType,
@@ -174,7 +218,8 @@ const pushUploadRecord = ({ fileName, storageProvider, originalFilename, mimeTyp
     file_size: Number(fileSize || 0),
     file_path: toPublicFilePath(fileName, storageProvider),
     storage_provider: storageProvider,
-    extracted_text: "",
+    extracted_text: extractedText,
+    extraction_preview: extractedText ? extractedText.slice(0, 280) : "",
   };
   uploadRecords.unshift(record);
   return record;
@@ -250,6 +295,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
+    const extraction = await extractUploadedText(req.file);
     const fileName = `${Date.now()}-${req.file.originalname}`;
     const storageProvider = await storeFile(fileName, req.file);
 
@@ -265,6 +311,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       documentType: req.body?.document_type || "",
       sourceType: req.body?.source_type || "",
       subjectName: req.body?.subject_name || "",
+      extraction,
     });
 
     res.json({
@@ -308,6 +355,7 @@ app.post('/api/submissions/public', upload.single('file'), async (req, res) => {
       return res.status(400).json({ ok: false, error: "Upload failed. Please try again." });
     }
 
+    const extraction = await extractUploadedText(req.file);
     const fileName = `${Date.now()}-${req.file.originalname}`;
     const storageProvider = await storeFile(fileName, req.file);
     pushUploadRecord({
@@ -320,6 +368,7 @@ app.post('/api/submissions/public', upload.single('file'), async (req, res) => {
       documentType: req.body?.document_type || "public submission",
       sourceType: "user-submitted document",
       subjectName: req.body?.subject_name || req.body?.name || "",
+      extraction,
     });
     console.log("[submissions] storageProvider:", storageProvider);
     console.log("[submissions] R2 upload success/failure: success");
@@ -357,6 +406,7 @@ app.post("/api/uploads/local", async (req, res) => {
       });
     }
 
+    const extraction = await extractUploadedText(req.file);
     const fileName = `${Date.now()}-${req.file.originalname}`;
     const storageProvider = await storeFile(fileName, req.file);
     lastUploadedFileName = fileName;
@@ -370,6 +420,7 @@ app.post("/api/uploads/local", async (req, res) => {
       documentType: req.body?.document_type || "",
       sourceType: req.body?.source_type || "user-submitted document",
       subjectName: req.body?.subject_name || "",
+      extraction,
     });
 
     return res.json({
@@ -378,8 +429,8 @@ app.post("/api/uploads/local", async (req, res) => {
       storageProvider,
       fileName,
       documentId: String(record.id),
-      extractionStatus: "pending",
-      extractionMessage: "Extraction is handled by the full server pipeline.",
+      extractionStatus: record.extraction_status,
+      extractionMessage: record.extraction_message,
       aiReviewStatus: process.env.OPENAI_API_KEY ? "pending" : "skipped",
       aiReviewMessage: process.env.OPENAI_API_KEY
         ? "AI review queued."
