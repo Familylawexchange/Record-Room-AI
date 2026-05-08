@@ -15,7 +15,7 @@ const pdfParse = require("pdf-parse");
 dotenv.config();
 
 const app = express();
-const PORT = 3001;
+const PORT = Number(process.env.PORT || 3001);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const localUploadDir = path.join(__dirname, "uploads");
@@ -51,6 +51,25 @@ app.get("/api/health", (req, res) => {
     status: "healthy",
     service: "record-room-ai-backend",
     timestamp: new Date().toISOString(),
+  });
+});
+
+// Compatibility aliases used by other backend variants/frontends.
+app.get("/health", (req, res) => {
+  res.json({
+    server: "running",
+    database: "not_applicable_in_server_mjs",
+    storageProvider: isR2Configured() ? "cloudflare-r2" : "local",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get("/api/config", (req, res) => {
+  res.json({
+    mode: process.env.RECORD_ROOM_MODE || "local",
+    nodeEnv: process.env.NODE_ENV || "development",
+    isProduction: process.env.NODE_ENV === "production",
+    storageProvider: isR2Configured() ? "cloudflare-r2" : "local",
   });
 });
 
@@ -257,6 +276,46 @@ app.post('/api/submissions/public', upload.single('file'), async (req, res) => {
   }
 });
 
+// Local/admin upload route expected by frontend integrations.
+app.post("/api/uploads/local", async (req, res) => {
+  try {
+    await new Promise((resolve, reject) => {
+      uploadPublicSubmission(req, res, (uploadErr) => {
+        if (uploadErr) reject(uploadErr);
+        else resolve();
+      });
+    });
+
+    if (!req.file) {
+      return res.status(400).json({
+        ok: false,
+        error: "No file uploaded. Accepted field names: file, document.",
+      });
+    }
+
+    const fileName = `${Date.now()}-${req.file.originalname}`;
+    const storageProvider = await storeFile(fileName, req.file);
+    lastUploadedFileName = fileName;
+
+    return res.json({
+      ok: true,
+      message: "Thank you. Your document has been submitted for review.",
+      storageProvider,
+      fileName,
+      documentId: `doc_${Date.now()}`,
+      extractionStatus: "pending",
+      extractionMessage: "Extraction is handled by the full server pipeline.",
+      aiReviewStatus: process.env.OPENAI_API_KEY ? "pending" : "skipped",
+      aiReviewMessage: process.env.OPENAI_API_KEY
+        ? "AI review queued."
+        : "OPENAI_API_KEY is not set; AI review skipped.",
+    });
+  } catch (error) {
+    console.error("[uploads/local] upload failed", error);
+    return res.status(500).json({ ok: false, error: "Upload failed. Please try again.", details: error.message });
+  }
+});
+
 app.post("/chat", async (req, res) => {
   try {
     const { message } = req.body;
@@ -310,5 +369,5 @@ ${message}
 });
 
 app.listen(PORT, () => {
-  console.log("Running on http://localhost:3001");
+  console.log(`Running on http://localhost:${PORT}`);
 });

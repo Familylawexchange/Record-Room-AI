@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const fss = require('node:fs');
@@ -7,8 +9,9 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { URL } = require('node:url');
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { ANALYSIS_MODEL, classifyDocument, analyzeLegalDocument } = require('./lib/aiAnalysis');
+const pdfParse = require('pdf-parse');
 
 const PORT = Number(process.env.PORT || 5173);
 const ROOT = __dirname;
@@ -27,10 +30,11 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 let openAiClientPromise;
 
 const R2_CONFIG = {
-  accountId: process.env.CLOUDFLARE_R2_ACCOUNT_ID || '',
-  accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || '',
-  secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || '',
-  bucket: process.env.CLOUDFLARE_R2_BUCKET || '',
+  // Accept both canonical and legacy env names so deployments don't silently break.
+  accountId: process.env.CLOUDFLARE_R2_ACCOUNT_ID || process.env.R2_ACCOUNT_ID || '',
+  accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID || '',
+  secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_ACCESS_KEY || '',
+  bucket: process.env.CLOUDFLARE_R2_BUCKET || process.env.R2_BUCKET || '',
   publicUrl: process.env.CLOUDFLARE_R2_PUBLIC_URL || '',
 };
 
@@ -335,6 +339,7 @@ CREATE TABLE IF NOT EXISTS documents (
   original_filename TEXT NOT NULL,
   stored_filename TEXT NOT NULL,
   file_path TEXT NOT NULL,
+  storage_provider TEXT NOT NULL DEFAULT 'local',
   file_size INTEGER NOT NULL,
   mime_type TEXT,
   extracted_text_path TEXT,
@@ -489,7 +494,7 @@ function handleHealth(response) {
 
 function applySafeMigrations() {
   const addColumns = {
-    documents: { document_title: 'TEXT', source_name: 'TEXT', document_hash: 'TEXT', text_hash: 'TEXT', confidence_score: 'REAL DEFAULT 0', ai_review_status: "TEXT DEFAULT 'pending'", ai_review_message: 'TEXT' },
+    documents: { document_title: 'TEXT', source_name: 'TEXT', document_hash: 'TEXT', text_hash: 'TEXT', confidence_score: 'REAL DEFAULT 0', ai_review_status: "TEXT DEFAULT 'pending'", ai_review_message: 'TEXT', storage_provider: "TEXT DEFAULT 'local'" },
     profiles: { normalized_name: 'TEXT', aliases: 'TEXT', associated_documents: 'TEXT', associated_claims: 'TEXT', source_summary: 'TEXT', public_notes: 'TEXT', profile_status: "TEXT DEFAULT 'new profile'", visibility: "TEXT DEFAULT 'private'" },
     research_leads: { source_platform: 'TEXT', acquisition_method: 'TEXT', case_name: 'TEXT', case_number: 'TEXT', state: 'TEXT', county: 'TEXT', court: 'TEXT', judge: 'TEXT', guardian_ad_litem: 'TEXT', attorneys: 'TEXT', prosecutor: 'TEXT', evaluator: 'TEXT', document_title: 'TEXT', docket_entry_text: 'TEXT', filing_date: 'TEXT', tags: 'TEXT', verification_source: 'TEXT', attachment_path: 'TEXT', attachment_filename: 'TEXT' },
     scanner_jobs: { state: 'TEXT', county: 'TEXT', court: 'TEXT', source_connector: 'TEXT', keyword_group: 'TEXT', custom_keywords: 'TEXT', person_name: 'TEXT', role: 'TEXT', case_type: 'TEXT', date_from: 'TEXT', date_to: 'TEXT', max_results: 'INTEGER' },
@@ -631,9 +636,9 @@ async function handleUpload(request, response, intakeMode) {
 
   const insert = querySql(`
     INSERT INTO documents (${[
-      'created_at','updated_at','intake_mode','review_status','visibility','redaction_status','uploader_name','uploader_email','uploader_role','subject_name','subject_role','court','county','state','case_number','document_type','source_type','source_label','reliability_tags','record_category','description','tags','notes','admin_notes','original_filename','stored_filename','file_path','file_size','mime_type','extracted_text','extraction_status','extraction_message','malware_scan_status','public_summary'
+      'created_at','updated_at','intake_mode','review_status','visibility','redaction_status','uploader_name','uploader_email','uploader_role','subject_name','subject_role','court','county','state','case_number','document_type','source_type','source_label','reliability_tags','record_category','description','tags','notes','admin_notes','original_filename','stored_filename','file_path','storage_provider','file_size','mime_type','extracted_text','extraction_status','extraction_message','malware_scan_status','public_summary'
     ].join(',')}) VALUES (${[
-      q(now),q(now),q(intakeMode),q(initialStatus),q(visibility),q('not_requested'),q(parsed.fields.uploader_name),q(parsed.fields.uploader_email),q(parsed.fields.uploader_role),q(parsed.fields.subject_name || parsed.fields.case_name),q(parsed.fields.subject_role),q(parsed.fields.court),q(parsed.fields.county),q(parsed.fields.state),q(parsed.fields.case_number),q(parsed.fields.document_type),q(parsed.fields.source_type),q(sourceLabel),q(reliability),q(parsed.fields.record_category),q(parsed.fields.description),q(parsed.fields.tags),q(parsed.fields.notes),q(''),q(file.filename),q(saved.storedName),q(saved.storedPath),Number(file.data.length),q(file.contentType),q(extraction.text),q(extraction.status),q(extraction.message),q('malware scan placeholder - not yet connected'),q('')
+      q(now),q(now),q(intakeMode),q(initialStatus),q(visibility),q('not_requested'),q(parsed.fields.uploader_name),q(parsed.fields.uploader_email),q(parsed.fields.uploader_role),q(parsed.fields.subject_name || parsed.fields.case_name),q(parsed.fields.subject_role),q(parsed.fields.court),q(parsed.fields.county),q(parsed.fields.state),q(parsed.fields.case_number),q(parsed.fields.document_type),q(parsed.fields.source_type),q(sourceLabel),q(reliability),q(parsed.fields.record_category),q(parsed.fields.description),q(parsed.fields.tags),q(parsed.fields.notes),q(''),q(file.filename),q(saved.storedName),q(saved.storedPath),q(saved.storageProvider),Number(file.data.length),q(file.contentType),q(extraction.text),q(extraction.status),q(extraction.message),q('malware scan placeholder - not yet connected'),q('')
     ].join(',')}) RETURNING *;
   `)[0];
   const textPath = await storage.saveExtractedText(insert.id, extraction.text);
@@ -688,6 +693,8 @@ async function extractText(file, extension) {
       return { text: '', status: 'failed', message: 'DOCX text extraction failed; original file retained.' };
     }
     if (extension === '.pdf') {
+      const parsed = await parsePdfText(file.data);
+      if (parsed.text.trim().length > 40) return parsed;
       const text = extractPdfLikeText(file.data);
       if (text.trim().length > 40) return { text, status: 'processed', message: 'Best-effort embedded PDF text extracted; scanned PDFs may need OCR.' };
       return { text: '', status: 'pending', message: 'PDF OCR/text extraction placeholder: original retained for a private parser or OCR worker.' };
@@ -697,6 +704,19 @@ async function extractText(file, extension) {
     return { text: '', status: 'pending', message: 'Extraction pending.' };
   } catch (error) {
     return { text: '', status: 'failed', message: `Extraction failed: ${error.message}` };
+  }
+}
+
+async function parsePdfText(buffer) {
+  try {
+    const parsed = await pdfParse(buffer);
+    const text = (parsed?.text || '').replace(/\u0000/g, '').trim();
+    if (!text) {
+      return { text: '', status: 'pending', message: 'No embedded PDF text found; likely scanned PDF and OCR is needed.' };
+    }
+    return { text: text.slice(0, 500_000), status: 'processed', message: 'PDF text extracted with pdf-parse.' };
+  } catch (error) {
+    return { text: '', status: 'failed', message: `PDF parse failed: ${error.message}` };
   }
 }
 
@@ -760,7 +780,30 @@ function handleDownload(response, id) {
   const doc = querySql(`SELECT * FROM documents WHERE id=${Number(id)};`)[0];
   if (!doc) return sendJson(response, 404, { error: 'Upload not found.' });
   response.writeHead(200, { 'Content-Type': doc.mime_type || 'application/octet-stream', 'Content-Disposition': `attachment; filename="${String(doc.original_filename).replace(/"/g, '')}"` });
+  if (doc.storage_provider === 'cloudflare-r2') {
+    streamR2ObjectToResponse(response, doc.file_path).catch((error) => {
+      console.error('[download/r2] failed to stream object', error);
+      if (!response.headersSent) sendJson(response, 500, { error: 'Failed to download file from cloud storage.' });
+      else response.destroy(error);
+    });
+    return;
+  }
   fss.createReadStream(doc.file_path).pipe(response);
+}
+
+async function streamR2ObjectToResponse(response, storedPath) {
+  const client = getR2Client();
+  if (!client) throw new Error('R2 is not configured.');
+  const parsedUrl = new URL(storedPath);
+  const key = parsedUrl.pathname.replace(/^\/+/, '');
+  const result = await client.send(new GetObjectCommand({ Bucket: R2_CONFIG.bucket, Key: key }));
+  if (!result.Body || typeof result.Body.pipe !== 'function') throw new Error('Cloud object body stream missing.');
+  await new Promise((resolve, reject) => {
+    result.Body.pipe(response);
+    result.Body.on('error', reject);
+    response.on('finish', resolve);
+    response.on('error', reject);
+  });
 }
 
 async function handleExtractedText(response, id) {
