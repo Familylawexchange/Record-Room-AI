@@ -223,7 +223,27 @@ const extractUploadedText = async (file) => {
   return { text: "", status: "pending", message: "Text extraction not implemented for this file type." };
 };
 
-const pushUploadRecord = ({ fileName, storageProvider, originalFilename, mimeType, fileSize, intakeMode, subjectName = "", documentType = "", sourceType = "", extraction = null }) => {
+const pushUploadRecord = ({
+  fileName,
+  storageProvider,
+  originalFilename,
+  mimeType,
+  fileSize,
+  intakeMode,
+  subjectName = "",
+  subjectRole = "",
+  documentType = "",
+  sourceType = "",
+  sourceLabel = "",
+  caseNumber = "",
+  court = "",
+  county = "",
+  state = "",
+  uploaderName = "",
+  uploaderEmail = "",
+  uploaderRole = "",
+  extraction = null,
+}) => {
   const now = new Date().toISOString();
   const extractedText = extraction?.text || "";
   const record = {
@@ -240,8 +260,16 @@ const pushUploadRecord = ({ fileName, storageProvider, originalFilename, mimeTyp
     document_title: documentType || originalFilename,
     document_type: documentType,
     source_type: sourceType,
-    source_label: sourceType || "user-submitted document",
+    source_label: sourceLabel || sourceType || "user-submitted document",
     subject_name: subjectName,
+    subject_role: subjectRole,
+    case_number: caseNumber,
+    court,
+    county,
+    state,
+    uploader_name: uploaderName,
+    uploader_email: uploaderEmail,
+    uploader_role: uploaderRole,
     mime_type: mimeType || "application/octet-stream",
     file_size: Number(fileSize || 0),
     file_path: toPublicFilePath(fileName, storageProvider),
@@ -338,7 +366,16 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       intakeMode: "local_admin",
       documentType: req.body?.document_type || "",
       sourceType: req.body?.source_type || "",
+      sourceLabel: req.body?.source_label || "",
       subjectName: req.body?.subject_name || "",
+      subjectRole: req.body?.subject_role || "",
+      caseNumber: req.body?.case_number || "",
+      court: req.body?.court || "",
+      county: req.body?.county || "",
+      state: req.body?.state || "",
+      uploaderName: req.body?.uploader_name || "",
+      uploaderEmail: req.body?.uploader_email || "",
+      uploaderRole: req.body?.uploader_role || "",
       extraction,
     });
 
@@ -395,7 +432,16 @@ app.post('/api/submissions/public', upload.single('file'), async (req, res) => {
       intakeMode: "public_submission",
       documentType: req.body?.document_type || "public submission",
       sourceType: "user-submitted document",
+      sourceLabel: req.body?.source_label || "user-submitted document",
       subjectName: req.body?.subject_name || req.body?.name || "",
+      subjectRole: req.body?.subject_role || "",
+      caseNumber: req.body?.case_number || "",
+      court: req.body?.court || "",
+      county: req.body?.county || "",
+      state: req.body?.state || req.body?.caseState || "",
+      uploaderName: req.body?.uploader_name || req.body?.name || "",
+      uploaderEmail: req.body?.uploader_email || req.body?.email || "",
+      uploaderRole: req.body?.uploader_role || "",
       extraction,
     });
     console.log("[submissions] storageProvider:", storageProvider);
@@ -447,7 +493,16 @@ app.post("/api/uploads/local", async (req, res) => {
       intakeMode: "local_admin",
       documentType: req.body?.document_type || "",
       sourceType: req.body?.source_type || "user-submitted document",
+      sourceLabel: req.body?.source_label || "",
       subjectName: req.body?.subject_name || "",
+      subjectRole: req.body?.subject_role || "",
+      caseNumber: req.body?.case_number || "",
+      court: req.body?.court || "",
+      county: req.body?.county || "",
+      state: req.body?.state || "",
+      uploaderName: req.body?.uploader_name || "",
+      uploaderEmail: req.body?.uploader_email || "",
+      uploaderRole: req.body?.uploader_role || "",
       extraction,
     });
 
