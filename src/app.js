@@ -113,7 +113,7 @@ async function renderAdmin() {
 }
 
 function renderUpload() {
-  app.innerHTML = `<section class="card panel uploader"><p class="eyebrow">Local/private admin upload</p><h2 class="pageTitle">Local Upload</h2>${missionReminderBlock()}<p class="formIntro">For documents from your computer. Uploads are private/admin-only by default and saved under <code>./record-room-data/uploads</code>.</p>${sealedWarning()}<form id="local-intake">${uploaderFields('admin')}<input type="hidden" name="visibility" value="private" /><input type="hidden" name="review_status" value="private intake" /><label>Document file${fileInput()}</label><p class="formIntro">Accepted: PDF, DOCX, DOC, TXT. Maximum size: 25 MB. Malware scan placeholder is recorded.</p><button type="submit">Save private/admin-only document</button><p class="status status-message" id="local-status"></p></form></section>`;
+  app.innerHTML = `<section class="card panel uploader uploadPage"><p class="eyebrow">Local/private admin upload</p><h2 class="pageTitle">Local Upload</h2>${missionReminderBlock()}<p class="formIntro uploadLead">Upload official records from your computer. Intake stays <strong>private / admin-only</strong> by default. Files are stored securely (for example under your configured cloud bucket or local data directory).</p>${sealedWarning()}<form id="local-intake" class="uploadIntakeForm">${uploaderFieldsAdminStructured()}<input type="hidden" name="visibility" value="private" /><input type="hidden" name="review_status" value="private intake" /><div class="uploadSection uploadSection--file"><h3 class="uploadSectionTitle">Document file</h3><p class="uploadSectionHelp">Choose one file per submission. You can add another submission for additional documents.</p><label class="uploadFileLabel">File${fileInput()}</label><ul class="uploadFileSpecs"><li><strong>Formats:</strong> PDF, DOCX, DOC, TXT</li><li><strong>Max size:</strong> 25 MB</li><li><strong>Note:</strong> Malware scanning is recorded as a placeholder until connected.</li></ul></div><div class="uploadFormActions"><button type="submit">Save private / admin-only document</button><p class="status status-message" id="local-status"></p></div></form></section>`;
 }
 
 function renderSubmit() {
@@ -151,6 +151,40 @@ function uploaderFields(mode) {
     return `<div class="grid two compactGrid"><label>Name<input name="uploader_name" required /></label><label>Email address<input name="uploader_email" required type="email" /></label></div><label>Case state<input name="state" required /></label><label>Short description of the proceeding/case<textarea name="description" required></textarea></label>`;
   }
   return `<div class="grid two compactGrid"><label>Uploader/admin name<input name="uploader_name" required /></label><label>Email<input name="uploader_email" type="email" /></label></div><label>Subject/person/entity name<input name="subject_name" required /></label><label>Role of subject${selectHtml('subject_role', roles, 'judge')}</label><div class="grid two compactGrid"><label>Court<input name="court" /></label><label>County<input name="county" /></label><label>State<input name="state" /></label><label>Case number<input name="case_number" /></label></div><div class="grid two compactGrid"><label>Document type<input name="document_type" /></label><label>Source type<input name="source_type" /></label></div><label>Short description<textarea name="description"></textarea></label><label>Tags/categories<input name="tags" /></label><label>Source/reliability label${selectHtml('source_label', config.sourceLabels, config.sourceLabels[0] || 'unknown source')}</label>`;
+}
+
+function uploaderFieldsAdminStructured() {
+  return `<div class="uploadSection">
+  <h3 class="uploadSectionTitle">Who is uploading</h3>
+  <p class="uploadSectionHelp">Required for this private intake. Your team can use this to follow up on the record if needed.</p>
+  <div class="grid two compactGrid">
+    <label>Uploader / admin name<input name="uploader_name" required autocomplete="name" /></label>
+    <label>Email<input name="uploader_email" type="email" autocomplete="email" placeholder="name@example.com" /></label>
+  </div>
+</div>
+<div class="uploadSection">
+  <h3 class="uploadSectionTitle">Subject and case</h3>
+  <p class="uploadSectionHelp">Identify the person or entity the document is about, then add court and case details if you have them.</p>
+  <label>Subject / person / entity name<input name="subject_name" required placeholder="e.g. Jane Doe" /></label>
+  <label>Role of subject${selectHtml('subject_role', roles, 'judge')}</label>
+  <div class="grid two compactGrid">
+    <label>Court<input name="court" placeholder="e.g. Superior Court" /></label>
+    <label>County<input name="county" /></label>
+    <label>State<input name="state" placeholder="e.g. Georgia" /></label>
+    <label>Case number<input name="case_number" placeholder="Docket or case ID" /></label>
+  </div>
+</div>
+<div class="uploadSection">
+  <h3 class="uploadSectionTitle">Document details</h3>
+  <p class="uploadSectionHelp">How you classify the file helps reviewers route and verify it.</p>
+  <div class="grid two compactGrid">
+    <label>Document type<input name="document_type" placeholder="e.g. order, transcript, motion" /></label>
+    <label>Source type<input name="source_type" placeholder="e.g. court filing, agency record" /></label>
+  </div>
+  <label>Short description<textarea name="description" placeholder="Brief summary of what this document is and why it matters."></textarea></label>
+  <label>Tags / categories<input name="tags" placeholder="Comma-separated or short keywords" /></label>
+  <label>Source / reliability label${selectHtml('source_label', config.sourceLabels, config.sourceLabels[0] || 'unknown source')}</label>
+</div>`;
 }
 
 function missionReminderBlock() { return `<div class="missionReminder"><div class="missionVisual"><div class="robotGirlThumb" aria-hidden="true">🤖</div><div class="fleLogoBadge" aria-label="FLE logo">FLE</div></div><p>Upload transcripts, court orders, reports, evidence, and other official records to help us build a centralized hub that identifies patterns, conduct, rule compliance, and decision-making by the guardians, judges, prosecutors, attorneys, and court officials responsible for shaping families’ futures.</p></div>`; }
