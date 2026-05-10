@@ -9,15 +9,20 @@
   <body>
     <header class="siteHeader top-nav publicHeader" id="site-header">
       <a class="brand" href="/">The Record Room AI</a>
-      <nav class="topNav nav-links" aria-label="Primary navigation">
-        <a href="/submit">Submit records</a>
-        <a href="/search">Public search</a>
-      </nav>
-      <div class="headerActions" id="header-actions">
-        <a href="/admin" class="adminEntryBtn">Staff workspace</a>
+      <div class="headerNavCluster">
+        <nav class="topNav nav-links" aria-label="Primary navigation">
+          <a href="/">Home</a>
+          <a href="/submit">Submit records</a>
+          <a href="/search">Public search</a>
+        </nav>
+        <div class="headerActions" id="header-actions">
+          <a href="/admin" class="adminEntryBtn">Staff workspace</a>
+        </div>
       </div>
     </header>
     <main id="app" class="page-shell"></main>
+    <footer class="siteFooter" id="site-footer" aria-label="Site footer"></footer>
+    <script src="/src/chrome-boot.js"></script>
     <script type="module" src="/src/app.js"></script>
   </body>
 </html>
