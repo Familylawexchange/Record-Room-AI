@@ -7,20 +7,15 @@
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <header class="siteHeader top-nav">
+    <header class="siteHeader top-nav publicHeader" id="site-header">
       <a class="brand" href="/">The Record Room AI</a>
       <nav class="topNav nav-links" aria-label="Primary navigation">
-        <a href="/admin">Admin Dashboard</a>
-        <a href="/upload">Local Upload</a>
-        <a href="/submit">Public Submit</a>
-        <a href="/review">Review Queue</a>
-        <a href="/documents">Documents</a>
-        <a href="/profiles">Profiles</a>
-        <a href="/leads">Research Leads</a>
-        <a href="/scanner">Scanner</a>
-        <a href="/search">Public Search</a>
-        <a href="/health">Health</a>
+        <a href="/submit">Submit records</a>
+        <a href="/search">Public search</a>
       </nav>
+      <div class="headerActions" id="header-actions">
+        <a href="/admin" class="adminEntryBtn">Staff workspace</a>
+      </div>
     </header>
     <main id="app" class="page-shell"></main>
     <script type="module" src="/src/app.js"></script>
