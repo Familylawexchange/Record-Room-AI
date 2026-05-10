@@ -9,8 +9,19 @@ const scannerStatuses = ['new result', 'likely relevant', 'not relevant', 'dupli
 const reviewStatuses = ['pending', 'approved public', 'approved private', 'rejected', 'needs redaction', 'needs official source verification', 'duplicate', 'sealed/do not publish'];
 const states = ['Georgia', 'Florida', 'California', 'Ohio', 'South Carolina', 'Texas'];
 const connectors = ['CourtListener / RECAP connector placeholder', 'Georgia appellate opinions placeholder', 'Florida appellate opinions placeholder', 'California appellate opinions placeholder', 'Ohio appellate opinions placeholder', 'South Carolina appellate opinions placeholder', 'Texas appellate opinions placeholder', 'Georgia re:SearchGA placeholder', 'Florida county clerk portal placeholder', 'California county superior court portal placeholder', 'Ohio county clerk/common pleas/domestic relations placeholder', 'South Carolina Public Index placeholder', 'South Carolina C-Track appellate placeholder', 'Texas re:SearchTX placeholder', 'Official bar/judicial discipline placeholder', 'Trellis Law manual/import connector', 'Westlaw/Lexis/UniCourt/Docket Alarm manual/import connector'];
-/** Routes that use the staff/admin shell (no login yet — entry via Staff workspace). */
-const ADMIN_PATHS = new Set(['/admin', '/upload', '/review', '/documents', '/profiles', '/leads', '/scanner', '/health']);
+/** Staff routes — keep in sync with `src/chrome-boot.js` (first-paint shell). */
+const ADMIN_NAV_FALLBACK = [
+  { href: '/admin', label: 'Admin dashboard' },
+  { href: '/upload', label: 'Local upload' },
+  { href: '/review', label: 'Review queue' },
+  { href: '/documents', label: 'Documents' },
+  { href: '/profiles', label: 'Profiles' },
+  { href: '/leads', label: 'Research leads' },
+  { href: '/scanner', label: 'Scanner' },
+  { href: '/health', label: 'Health' },
+];
+const ADMIN_NAV_LINKS = globalThis.__RR_ADMIN_NAV_LINKS__ || ADMIN_NAV_FALLBACK;
+const ADMIN_PATHS = globalThis.__RR_ADMIN_PATHS__ || new Set(ADMIN_NAV_LINKS.map((item) => item.href));
 
 const keywordGroups = {
   'Judicial Recusal / Disqualification': ['motion to recuse', 'motion for recusal', 'motion to disqualify judge', 'judicial disqualification', 'verified statement of disqualification', 'affidavit of bias', 'appearance of impropriety', 'ex parte', 'impartiality', 'bias', 'prejudice'],
@@ -28,20 +39,42 @@ if (document.readyState === 'loading') {
   bootstrap();
 }
 
+function ensureConfigDefaults() {
+  if (!config.professionalRoles?.length) config.professionalRoles = roles;
+  if (!config.sourceLabels?.length) config.sourceLabels = ['official court source', 'user-submitted document', 'Trellis Law research lead', 'unknown source'];
+}
+
+/** Fields that change form markup (select options, etc.); used to avoid unnecessary re-render after /api/config. */
+function configDomFingerprint() {
+  return JSON.stringify({
+    sourceLabels: config.sourceLabels,
+    professionalRoles: config.professionalRoles,
+    reliabilityTags: config.reliabilityTags,
+  });
+}
+
 async function bootstrap() {
   app = document.querySelector('#app');
   if (!app) return;
   hydrateDirectVisitFromQuery();
   wireNavigation();
+  ensureConfigDefaults();
+  renderRoute();
+  applyLayoutClasses();
+
+  let fingerprint = configDomFingerprint();
   try {
-    config = await api('/api/config');
+    const fetched = await api('/api/config');
+    config = { ...config, ...fetched };
+    ensureConfigDefaults();
+    const next = configDomFingerprint();
+    if (next !== fingerprint) {
+      renderRoute();
+      applyLayoutClasses();
+    }
   } catch (error) {
     console.warn('[bootstrap] Failed to load /api/config, using fallback config.', error);
   }
-  if (!config.professionalRoles?.length) config.professionalRoles = roles;
-  if (!config.sourceLabels?.length) config.sourceLabels = ['official court source', 'user-submitted document', 'Trellis Law research lead', 'unknown source'];
-  renderRoute();
-  applyLayoutClasses();
 }
 
 function applyLayoutClasses() {
@@ -56,7 +89,10 @@ function renderRoute() {
   applyTitle(path);
   renderHeader(path);
   const mainEl = document.querySelector('#app');
-  if (mainEl) mainEl.classList.toggle('adminWorkspace', ADMIN_PATHS.has(path));
+  if (mainEl) {
+    mainEl.classList.toggle('adminWorkspace', ADMIN_PATHS.has(path));
+    mainEl.classList.toggle('landingShell', path === '/');
+  }
   if (path === '/admin') renderAdmin();
   else if (path === '/upload') renderUpload();
   else if (path === '/submit' || path === '/record-room-submit') renderSubmit();
@@ -72,53 +108,93 @@ function renderRoute() {
 }
 
 function renderHeader(path) {
-  const header = document.querySelector('.siteHeader');
-  const nav = document.querySelector('.topNav');
-  const brand = document.querySelector('.brand');
-  const actions = document.querySelector('#header-actions');
-  if (!header || !nav || !brand) return;
-
-  const isAdminShell = ADMIN_PATHS.has(path);
-  document.body.classList.toggle('admin-mode', isAdminShell);
-  header.classList.toggle('adminHeaderShell', isAdminShell);
-  header.classList.toggle('publicHeader', !isAdminShell);
-
-  const publicLinks = [
-    { href: '/', label: 'Home' },
-    { href: '/submit', label: 'Submit records' },
-    { href: '/search', label: 'Public search' },
-  ];
-  const adminLinks = [
-    { href: '/admin', label: 'Dashboard' },
-    { href: '/upload', label: 'Upload' },
-    { href: '/review', label: 'Review queue' },
-    { href: '/documents', label: 'Documents' },
-    { href: '/profiles', label: 'Profiles' },
-    { href: '/leads', label: 'Research leads' },
-    { href: '/scanner', label: 'Scanner' },
-    { href: '/health', label: 'Health' },
-  ];
-
-  brand.innerHTML = `${fleLogoInline()}<span>The Record Room AI</span>`;
-  brand.href = '/';
-
-  const links = isAdminShell ? adminLinks : publicLinks;
-  nav.innerHTML = links.map((link) => {
-    const isCurrent = link.href === path
-      || (link.href === '/search' && path === '/public-search')
-      || (link.href === '/' && path === '/');
-    return `<a href="${link.href}" ${isCurrent ? 'aria-current="page"' : ''}>${link.label}</a>`;
-  }).join('');
-
-  if (actions) {
-    actions.innerHTML = isAdminShell
-      ? `<a href="/" class="headerExitLink">← Public site</a>`
-      : `<a href="/admin" class="adminEntryBtn">Staff workspace</a>`;
+  const normalized = path.replace(/\/+$/, '') || '/';
+  if (typeof globalThis.__RR_applySiteChrome === 'function') {
+    globalThis.__RR_applySiteChrome(normalized);
   }
+  const brand = document.querySelector('.brand');
+  if (!brand) return;
+  brand.innerHTML = `${fleLogoInline()}<span>The Record Room AI</span>`;
+  brand.href = ADMIN_PATHS.has(normalized) ? '/admin' : '/';
 }
 
 function renderHome() {
-  app.innerHTML = `<section class="hero card panel"><div><p class="badge">Document-Driven Family Court Accountability</p><h1>Record Room AI</h1><p class="lede">The Record Room AI is a document-driven accountability project built to collect transcripts, court orders, reports, filings, evidence, and other official records from family court and related proceedings. Our goal is to help identify patterns in conduct, decision-making, rule compliance, conflicts, outcomes, and recurring concerns involving guardians ad litem, judges, prosecutors, attorneys, evaluators, agencies, and other court-connected professionals.</p><div class="guardrails"><span>Uploaded records are reviewed before anything is made public.</span><span>The goal is organized, source-based accountability — not rumor, speculation, or automatic publication.</span></div></div></section>${flowPanel()}`;
+  app.innerHTML = `<div class="landingPage">
+  <section class="landingHero hero card panel">
+    <div class="landingHeroGrid">
+      <div class="landingHeroCopy">
+        <p class="landingKicker"><span class="badge">Document-driven · family court</span></p>
+        <h1 class="landingHeadline"><span class="landingHeadline-main">Record Room AI</span><span class="landingHeadline-sub">Accountability anchored in what the docket actually says.</span></h1>
+        <p class="lede landingLede">We collect transcripts, orders, motions, reports, and other <strong>official</strong> records so communities can see patterns in conduct, decisions, and outcomes involving judges, guardians ad litem, attorneys, agencies, and court-connected professionals — with review before anything goes public.</p>
+        <div class="landingCtas">
+          <a href="/submit" class="landingCta landingCta--primary">Submit a record</a>
+          <a href="/search" class="landingCta landingCta--secondary">Search the public archive</a>
+          <button type="button" class="landingCta landingCta--ghost" data-landing-scroll="landing-how">How it works</button>
+        </div>
+        <ul class="landingTrust" aria-label="How we treat submissions">
+          <li><strong>Review first</strong><span>Human workflow before publication</span></li>
+          <li><strong>Source-grounded</strong><span>Built for filings &amp; court artifacts</span></li>
+          <li><strong>No auto-scoop</strong><span>Not rumor or viral claims</span></li>
+        </ul>
+        <div class="guardrails landingGuardrails"><span>Every upload is reviewed; nothing surfaces publicly by default.</span><span>Allegations in pleadings are not the same as adjudicated findings — we label uncertainty.</span></div>
+      </div>
+      <div class="landingHeroArt" aria-hidden="true">
+        <div class="docStack">
+          <div class="docStack-sheet docStack-sheet--back"></div>
+          <div class="docStack-sheet docStack-sheet--mid"></div>
+          <div class="docStack-sheet docStack-sheet--front">
+            <span class="docStack-line docStack-line--gold"></span>
+            <span class="docStack-line"></span>
+            <span class="docStack-line docStack-line--short"></span>
+            <span class="docStack-seal">RR</span>
+          </div>
+        </div>
+        <p class="docStack-caption">From the file · verified · contextualized</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="landingPillars" aria-labelledby="landing-pillars-title">
+    <h2 id="landing-pillars-title" class="visuallyHidden">What makes this project different</h2>
+    <article class="landingPillar">
+      <span class="landingPillar-icon" aria-hidden="true">◇</span>
+      <h3>Primary records</h3>
+      <p>Orders, transcripts, and signed filings — not second-hand summaries — so arguments stay tethered to the document.</p>
+    </article>
+    <article class="landingPillar">
+      <span class="landingPillar-icon" aria-hidden="true">◎</span>
+      <h3>Structured review</h3>
+      <p>Redaction, provenance, and reliability tags are part of the pipeline, not an afterthought.</p>
+    </article>
+    <article class="landingPillar">
+      <span class="landingPillar-icon" aria-hidden="true">✦</span>
+      <h3>Public clarity</h3>
+      <p>Search focuses on <strong>approved public</strong> material; private and pending items stay out of view.</p>
+    </article>
+  </section>
+
+  <section id="landing-how" class="landingSteps card panel" aria-labelledby="landing-how-title">
+    <p class="eyebrow landingSteps-eyebrow">From intake to insight</p>
+    <h2 id="landing-how-title" class="pageTitle landingSteps-title">How Record Room works</h2>
+    <p class="formIntro landingSteps-intro">A straight path: you bring the record; we preserve context; reviewers decide what can safely inform the public archive.</p>
+    <ol class="landingStepList">
+      <li class="landingStep"><span class="landingStep-num">1</span><div class="landingStep-body"><strong>Share the document</strong><span>Upload through the public portal with case context. Sensitive material stays protected while staff assesses it.</span></div></li>
+      <li class="landingStep"><span class="landingStep-num">2</span><div class="landingStep-body"><strong>Review &amp; enrich</strong><span>Metadata, roles, courts, and tags are normalized. Redactions and verification steps are logged.</span></div></li>
+      <li class="landingStep"><span class="landingStep-num">3</span><div class="landingStep-body"><strong>Publish with care</strong><span>Only approved public entries appear in search — clearly labeled and tied to sources.</span></div></li>
+    </ol>
+    <div class="landingSteps-cta">
+      <a href="/submit" class="buttonLink">Start a submission</a>
+      <a href="/search" class="landingCta landingCta--outline">Browse public search</a>
+    </div>
+  </section>
+
+  <section class="landingMission card panel">
+    <p class="eyebrow">Our mission</p>
+    <h2 class="pageTitle landingMission-title">Public accountability grounded in official records</h2>
+    <p class="formIntro landingMission-lead">Record Room AI exists so families, journalists, and advocates can understand <em>patterns</em> in family court systems — using the same paper trail the courts generate, organized for clarity instead of chaos.</p>
+    <div class="actionsList landingMission-pills">${['No uncontrolled scraping', 'No sealed or confidential publication by design', 'Redaction workflow', 'Source-based review before publication', 'Public visibility only after approval'].map(pill).join('')}</div>
+  </section>
+</div>`;
 }
 
 
@@ -242,6 +318,14 @@ function wireRoute() {
   document.querySelector('#scanner-form')?.addEventListener('submit', submitScanner);
   document.querySelector('#documents-upload')?.addEventListener('submit', submitDocumentsUpload);
   document.querySelector('#documents-ask')?.addEventListener('submit', askIndexedDocuments);
+  document.querySelectorAll('[data-landing-scroll]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      const id = el.getAttribute('data-landing-scroll');
+      if (!id) return;
+      e.preventDefault();
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
   if (location.pathname === '/review') loadAdminUploads(false);
   if (location.pathname === '/documents') loadDocumentsPage(false);
   if (location.pathname === '/search' || location.pathname === '/public-search') handlePublicSearch(new Event('submit'));
