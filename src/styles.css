@@ -1053,3 +1053,73 @@ input[type="radio"] {
 .uploadFormActions .status-message {
   margin-top: 0;
 }
+
+/* Public vs staff header — same palette */
+.headerActions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.65rem;
+}
+
+.adminEntryBtn {
+  background: linear-gradient(135deg, var(--purple), #442067);
+  border-radius: 999px;
+  box-shadow: 0 10px 22px rgba(91, 42, 134, 0.22);
+  color: var(--white) !important;
+  display: inline-flex;
+  font-size: 0.92rem;
+  font-weight: 850;
+  padding: 0.58rem 1rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.adminEntryBtn:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.headerExitLink {
+  background: rgba(91, 42, 134, 0.08);
+  border: 1px solid rgba(91, 42, 134, 0.2);
+  border-radius: 999px;
+  color: var(--navy) !important;
+  display: inline-flex;
+  font-size: 0.9rem;
+  font-weight: 800;
+  padding: 0.5rem 0.9rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.headerExitLink:hover {
+  background: var(--lavender);
+  color: var(--purple) !important;
+}
+
+.adminHeaderShell {
+  border-bottom: 3px solid rgba(91, 42, 134, 0.35);
+}
+
+body.admin-mode {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(91, 42, 134, 0.07), transparent 32rem),
+    linear-gradient(180deg, #ffffff 0%, var(--soft-gray) 46%, #f1edf8 100%);
+}
+
+main.adminWorkspace {
+  border-top: 1px solid transparent;
+}
+
+@media (max-width: 720px) {
+  .siteHeader {
+    align-items: flex-start;
+  }
+
+  .headerActions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+    margin-left: 0;
+  }
+}

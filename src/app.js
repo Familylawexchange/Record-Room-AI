@@ -9,6 +9,9 @@ const scannerStatuses = ['new result', 'likely relevant', 'not relevant', 'dupli
 const reviewStatuses = ['pending', 'approved public', 'approved private', 'rejected', 'needs redaction', 'needs official source verification', 'duplicate', 'sealed/do not publish'];
 const states = ['Georgia', 'Florida', 'California', 'Ohio', 'South Carolina', 'Texas'];
 const connectors = ['CourtListener / RECAP connector placeholder', 'Georgia appellate opinions placeholder', 'Florida appellate opinions placeholder', 'California appellate opinions placeholder', 'Ohio appellate opinions placeholder', 'South Carolina appellate opinions placeholder', 'Texas appellate opinions placeholder', 'Georgia re:SearchGA placeholder', 'Florida county clerk portal placeholder', 'California county superior court portal placeholder', 'Ohio county clerk/common pleas/domestic relations placeholder', 'South Carolina Public Index placeholder', 'South Carolina C-Track appellate placeholder', 'Texas re:SearchTX placeholder', 'Official bar/judicial discipline placeholder', 'Trellis Law manual/import connector', 'Westlaw/Lexis/UniCourt/Docket Alarm manual/import connector'];
+/** Routes that use the staff/admin shell (no login yet — entry via Staff workspace). */
+const ADMIN_PATHS = new Set(['/admin', '/upload', '/review', '/documents', '/profiles', '/leads', '/scanner', '/health']);
+
 const keywordGroups = {
   'Judicial Recusal / Disqualification': ['motion to recuse', 'motion for recusal', 'motion to disqualify judge', 'judicial disqualification', 'verified statement of disqualification', 'affidavit of bias', 'appearance of impropriety', 'ex parte', 'impartiality', 'bias', 'prejudice'],
   'Guardian ad Litem / GAL': ['guardian ad litem', 'GAL', 'G.A.L.', 'motion to remove guardian ad litem', 'motion to disqualify guardian ad litem', 'motion to strike GAL report', 'guardian ad litem report', 'GAL fees', 'GAL misconduct', 'guardian ad litem bias', 'guardian ad litem ex parte'],
@@ -52,6 +55,8 @@ function renderRoute() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
   applyTitle(path);
   renderHeader(path);
+  const mainEl = document.querySelector('#app');
+  if (mainEl) mainEl.classList.toggle('adminWorkspace', ADMIN_PATHS.has(path));
   if (path === '/admin') renderAdmin();
   else if (path === '/upload') renderUpload();
   else if (path === '/submit' || path === '/record-room-submit') renderSubmit();
@@ -70,33 +75,46 @@ function renderHeader(path) {
   const header = document.querySelector('.siteHeader');
   const nav = document.querySelector('.topNav');
   const brand = document.querySelector('.brand');
+  const actions = document.querySelector('#header-actions');
   if (!header || !nav || !brand) return;
-  const internalPaths = new Set(['/admin', '/upload', '/review', '/profiles', '/leads', '/scanner', '/health']);
+
+  const isAdminShell = ADMIN_PATHS.has(path);
+  document.body.classList.toggle('admin-mode', isAdminShell);
+  header.classList.toggle('adminHeaderShell', isAdminShell);
+  header.classList.toggle('publicHeader', !isAdminShell);
+
   const publicLinks = [
-    { href: '/', label: 'The Record Room AI' },
-    { href: '/submit', label: 'Submit Records' },
-    { href: '/documents', label: 'Documents' },
-    { href: '/search', label: 'Public Search' },
-    { href: '/#about', label: 'About' },
+    { href: '/', label: 'Home' },
+    { href: '/submit', label: 'Submit records' },
+    { href: '/search', label: 'Public search' },
   ];
-  const internalLinks = [
-    { href: '/admin', label: 'Admin Dashboard' },
-    { href: '/upload', label: 'Local Upload' },
-    { href: '/review', label: 'Review Queue' },
+  const adminLinks = [
+    { href: '/admin', label: 'Dashboard' },
+    { href: '/upload', label: 'Upload' },
+    { href: '/review', label: 'Review queue' },
+    { href: '/documents', label: 'Documents' },
     { href: '/profiles', label: 'Profiles' },
-    { href: '/leads', label: 'Research Leads' },
+    { href: '/leads', label: 'Research leads' },
     { href: '/scanner', label: 'Scanner' },
     { href: '/health', label: 'Health' },
   ];
-  const onInternalPage = internalPaths.has(path);
-  header.classList.toggle('publicHeader', !onInternalPage);
+
   brand.innerHTML = `${fleLogoInline()}<span>The Record Room AI</span>`;
-  nav.innerHTML = (onInternalPage ? internalLinks : publicLinks).map((link) => {
+  brand.href = '/';
+
+  const links = isAdminShell ? adminLinks : publicLinks;
+  nav.innerHTML = links.map((link) => {
     const isCurrent = link.href === path
       || (link.href === '/search' && path === '/public-search')
       || (link.href === '/' && path === '/');
     return `<a href="${link.href}" ${isCurrent ? 'aria-current="page"' : ''}>${link.label}</a>`;
   }).join('');
+
+  if (actions) {
+    actions.innerHTML = isAdminShell
+      ? `<a href="/" class="headerExitLink">← Public site</a>`
+      : `<a href="/admin" class="adminEntryBtn">Staff workspace</a>`;
+  }
 }
 
 function renderHome() {
